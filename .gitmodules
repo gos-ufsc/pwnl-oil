@@ -1,0 +1,3 @@
+[submodule "Oil"]
+	path = Oil
+	url = https://github.com/gos-ufsc/Oil.jl
