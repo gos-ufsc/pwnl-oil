@@ -1,5 +1,7 @@
 using Oil
-using JuMP, SCIP
+using JuMP, Gurobi
+
+const GRB_ENV = Gurobi.Env()
 
 M_Pressure = 1000.0  # Big-M
 
@@ -452,7 +454,7 @@ function add_platform(model::GenericModel, platform::Platform)
 end
 
 function get_minlp_problem(platform::Platform)
-    model = Model(SCIP.Optimizer)
+    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
     q_oil_total = 0
@@ -667,7 +669,7 @@ function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
     gors = [well.gor for well in riser.manifold_wells]
 
     for well in riser.manifold_wells
-        model = add_nonlinear_well(model, well)
+        model = add_linear_well(model, well)
 
         pwl_well = Oil.PiecewiseLinearWell(well, true)
         push!(q_liq_lowers, min(pwl_well.Q_liq_vlp...))
@@ -677,14 +679,16 @@ function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
         push!(iglr_uppers, max(pwl_well.IGLR...))
     end
 
-    q_liq_L = sum(q_liq_lowers...)
-    q_liq_U = sum(q_liq_uppers...)
+    q_liq_L = sum(q_liq_lowers)
+    q_liq_U = sum(q_liq_uppers)
     iglr_L = min(iglr_lowers...)
     iglr_U = max(iglr_uppers...)
     wct_L = min(wcts...)
     wct_U = max(wcts...)
     gor_L = min(gors...)
     gor_U = max(gors...)
+    q_oil_L = q_liq_L * (1 - wct_U)
+    q_oil_U = q_liq_U * (1 - wct_L)
 
     riser = Oil.PiecewiseLinearRiser(riser, p_sep, false)
 
@@ -857,20 +861,20 @@ function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
 end
 
 function get_milp_relaxation(platform::Platform)
-    model = Model(SCIP.Optimizer)
+    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
     q_oil_total = 0
 
     # Wells
     for well in platform.satellite_wells
-        model = add_nonlinear_well(model, well)
+        model = add_linear_well(model, well)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifold
     if ~isnothing(platform.riser)
-        model = add_nonlinear_riser(model, platform.riser, platform.p_sep)  # (65)
+        model = add_linear_riser(model, platform.riser, platform.p_sep)  # (65)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_m")
     end
 
