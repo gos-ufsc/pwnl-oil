@@ -79,14 +79,13 @@ function fix_model!(P::GenericModel, vars)
     for well in all_wells
         # strategic decisions
         y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
-        fix(variable_by_name(P, "y_$(well.name)"), y_value, force = true)
+        fix(variable_by_name(P, "y_$(well.name)"), round(y_value), force = true)
 
         t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
-        fix(variable_by_name(P, "t_gl_$(well.name)"), t_gl_value, force = true)
+        fix(variable_by_name(P, "t_gl_$(well.name)"), round(t_gl_value), force = true)
 
         # VLP
         for x in ["iglr", "whp", "qliq_vlp"]
-        # for x in ["iglr",]
             ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$(well.name)")]
             bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
 
@@ -95,10 +94,10 @@ function fix_model!(P::GenericModel, vars)
             ξ = ξ[sort_ix]
             bps = bps[sort_ix]
 
-            # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 0]
+            # filter breakpoints NOT to fix (considering solver tolerance)
+            ξ_not_to_fix = ξ[abs.(value.(ξ)) .> 1e-6]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 0])
+                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
@@ -132,7 +131,7 @@ function fix_model!(P::GenericModel, vars)
     if ~isnothing(platform.riser)
         # strategic decisions
         y_value = first(value(v) for v in vars if name(v) == "y_m")
-        fix(variable_by_name(P, "y_m"), y_value)
+        fix(variable_by_name(P, "y_m"), round(y_value))
 
         # VLP
         for x in ["qliq", "gor", "wct", "iglr"]
@@ -145,9 +144,9 @@ function fix_model!(P::GenericModel, vars)
             bps = bps[sort_ix]
 
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 0]
+            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 0])
+                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
@@ -207,9 +206,9 @@ function exclude!(P::GenericModel, vars)
             bps = bps[sort_ix]
 
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 0]
+            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 0])
+                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
@@ -251,9 +250,9 @@ function exclude!(P::GenericModel, vars)
             bps = bps[sort_ix]
 
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 0]
+            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 0])
+                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
@@ -288,7 +287,10 @@ function check_points_is_feasible(P, vars)
     set_optimizer(P_, () -> Gurobi.Optimizer(GRB_ENV))
 
     for v in vars
-        fix(variable_by_name(P_, name(v)), value(v), force=true)
+        if ~(startswith(name(v), "ξ") || startswith(name(v), "λ"))
+            println(name(v), " = ", value(v))
+            fix(variable_by_name(P_, name(v)), value(v), force=true)
+        end
     end
 
     @objective(P_, Max, 0)
