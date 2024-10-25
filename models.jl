@@ -188,178 +188,174 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_nonlinear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
-    N_man = names(riser.manifold_wells)  # names of all wells in manifold
+function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+    N_man = names(manifold.wells)  # names of all wells in manifold
 
-    for well in riser.manifold_wells
+    m = manifold.name
+
+    for well in manifold.wells
         model = add_nonlinear_well(model, well)
     end
 
-    riser = Oil.PiecewiseLinearRiser(riser, p_sep, false)
+    manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
 
     # Variables
 
     ## Flow rates
-    @variables(model, begin
-        q_liq_m >= 0.0
-        q_oil_m >= 0.0
-        q_water_m >= 0.0
-        q_gas_m >= 0.0
-        q_inj_m >= 0.0
-    end)
+    q_liq_m = @variable(model, base_name="q_liq_$m", lower_bound = 0)
+    q_oil_m = @variable(model, base_name="q_oil_$m", lower_bound = 0)
+    q_water_m = @variable(model, base_name="q_water_$m", lower_bound = 0)
+    q_gas_m = @variable(model, base_name="q_gas_$m", lower_bound = 0)
+    q_inj_m = @variable(model, base_name="q_inj_$m", lower_bound = 0)
 
     ## Pressures
-    @variables(model, begin
-        dsp_m   >= 0.0  # manifold downstream pressure
-        p_sup_m >= 0.0  # manifold choke pressure
-        ΔP      >= 0.0  # riser pressure drop
-    end)
+    dsp_m = @variable(model, base_name="dsp_$m", lower_bound = 0)  # manifold downstream pressure
+    p_sup_m = @variable(model, base_name="p_sup_$m", lower_bound = 0)  # manifold choke pressure
+    ΔP = @variable(model, base_name="ΔP_$m", lower_bound = 0)  # riser pressure drop
 
     ## Parameters
-    @variables(model, begin
-        gor_m
-        wct_m
-        iglr_m
-    end)
+    gor_m = @variable(model, base_name="gor_$m", lower_bound=0.0)
+    wct_m = @variable(model, base_name="wct_$m", lower_bound=0.0)
+    iglr_m = @variable(model, base_name="iglr_$m", lower_bound=0.0)
 
     ## Discrete decisions
-    @variable(model, y_m, Bin)  # (65d)
+    y_m = @variable(model, base_name="y_$m", binary = true)  # (65d)
 
     ## VLP curve variables
-    λ_riser_m = @variable(model, [riser.Q_liq, riser.GOR, riser.WCT, riser.IGLR],
-                          lower_bound=0.0, base_name="λ_riser_m")  # (65d)
-    ξ_qliq_m = @variable(model, [riser.Q_liq], lower_bound=0.0, base_name="ξ_qliq_m")
-    ξ_gor_m = @variable(model, [riser.GOR], lower_bound=0.0, base_name="ξ_gor_m")
-    ξ_wct_m = @variable(model, [riser.WCT], lower_bound=0.0, base_name="ξ_wct_m")
-    ξ_iglr_m = @variable(model, [riser.IGLR], lower_bound=0.0, base_name="ξ_iglr_m")
+    λ_riser_m = @variable(model, [manifold.Q_liq, manifold.GOR, manifold.WCT, manifold.IGLR],
+                          lower_bound=0.0, base_name="λ_riser_$m")  # (65d)
+    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0, base_name="ξ_qliq_$m")
+    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0, base_name="ξ_gor_$m")
+    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
+    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
 
     # Constraints
 
     ## Manifold input
 
     ### (65a)
-    @constraint(model, manifold_liquid_rate, q_liq_m == sum(variable_by_name(model, "q_liq_$n") for n in N_man))
-    @constraint(model, manifold_oil_rate, q_oil_m == sum(variable_by_name(model, "q_oil_$n") for n in N_man))
-    @constraint(model, manifold_water_rate, q_water_m == sum(variable_by_name(model, "q_water_$n") for n in N_man))
-    @constraint(model, manifold_gas_rate, q_gas_m == sum(variable_by_name(model, "q_gas_$n") for n in N_man))
-    @constraint(model, manifold_inj_gas_rate, q_inj_m == sum(variable_by_name(model, "q_inj_$n") for n in N_man))
+    @constraint(model, q_liq_m == sum(variable_by_name(model, "q_liq_$n") for n in N_man), base_name="liquid_rate_$m")
+    @constraint(model, q_oil_m == sum(variable_by_name(model, "q_oil_$n") for n in N_man), base_name="oil_rate_$m")
+    @constraint(model, q_water_m == sum(variable_by_name(model, "q_water_$n") for n in N_man), base_name="water_rate_$m")
+    @constraint(model, q_gas_m == sum(variable_by_name(model, "q_gas_$n") for n in N_man), base_name="gas_rate_$m")
+    @constraint(model, q_inj_m == sum(variable_by_name(model, "q_inj_$n") for n in N_man), base_name="inj_gas_rate_$m")
 
     ## VLP
 
     ### (65b)
-    @constraint(model, pwl_qliq_riser_m, q_liq_m == sum(
+    @constraint(model, q_liq_m == sum(
         q_liq_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_gor_riser_m, gor_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qliq_riser_$m")
+    @constraint(model, gor_m == sum(
         gor_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_wct_riser_m, wct_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_gor_riser_$m")
+    @constraint(model, wct_m == sum(
         wct_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_iglr_riser_m, iglr_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_wct_riser_$m")
+    @constraint(model, iglr_m == sum(
         iglr_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, p_sup_upper, p_sup_m <= dsp_m + M_Pressure * (1 - y_m))
-    @constraint(model, riser_choke_dP, p_sup_m >= dsp_m - M_Pressure * (1 - y_m))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_iglr_riser_$m")
+    @constraint(model, p_sup_m <= dsp_m + M_Pressure * (1 - y_m), base_name="p_sup_upper_$m")
+    @constraint(model, p_sup_m >= dsp_m - M_Pressure * (1 - y_m), base_name="riser_choke_dP_$m")
 
     ### (65c)
-    @constraint(model, q_oil_m == q_liq_m - q_water_m, base_name = "bilinear_q_oil_riser_m")
+    @constraint(model, q_oil_m == q_liq_m - q_water_m, base_name = "bilinear_q_oil_riser_$m")
     # @NonlinearConstraint
-    @constraint(model, q_water_m == q_liq_m * wct_m, base_name = "bilinear_q_water_riser_m")
+    @constraint(model, q_water_m == q_liq_m * wct_m, base_name = "bilinear_q_water_riser_$m")
     # @NonlinearConstraint
-    @constraint(model, q_gas_m == q_oil_m * gor_m, base_name = "bilinear_q_gas_riser_m")
+    @constraint(model, q_gas_m == q_oil_m * gor_m, base_name = "bilinear_q_gas_riser_$m")
     # @NonlinearConstraint
-    @constraint(model, q_inj_m == q_liq_m * iglr_m, base_name = "bilinear_q_inj_riser_m")
+    @constraint(model, q_inj_m == q_liq_m * iglr_m, base_name = "bilinear_q_inj_riser_$m")
 
-    @constraint(model, pwl_ΔP_riser_m, ΔP == sum(
-        riser.ΔP[q_liq_bp, gor_bp, wct_bp, iglr_bp] * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+    @constraint(model, ΔP == sum(
+        manifold.ΔP[q_liq_bp, gor_bp, wct_bp, iglr_bp] * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_ΔP_riser_$m")
 
     ### (65d)
-    @constraint(model, pwl_riser_curve, y_m == sum(
+    @constraint(model, y_m == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, forced_activation_riser_m[n in N_man], y_m >= variable_by_name(model, "y_$n"))
-    @constraint(model, forced_deactivation_riser_m, y_m <= sum(variable_by_name(model, "y_$n") for n in N_man))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_riser_curve_$m")
+    @constraint(model, [n in N_man], y_m >= variable_by_name(model, "y_$n"), base_name="forced_activation_riser_$m")
+    @constraint(model, y_m <= sum(variable_by_name(model, "y_$n") for n in N_man), base_name="forced_deactivation_riser_$m")
 
     ### (65e)
-    @constraint(model, eta_qliq_riser_m[q_liq_bp in riser.Q_liq], ξ_qliq_m[q_liq_bp] == sum(
+    @constraint(model, [q_liq_bp in manifold.Q_liq], ξ_qliq_m[q_liq_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_gor_riser_m[gor_bp in riser.GOR], ξ_gor_m[gor_bp] == sum(
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_qliq_riser_$m")
+    @constraint(model, [gor_bp in manifold.GOR], ξ_gor_m[gor_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_wct_riser_m[wct_bp in riser.WCT], ξ_wct_m[wct_bp] == sum(
+        for q_liq_bp in manifold.Q_liq
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_gor_riser_$m")
+    @constraint(model, [wct_bp in manifold.WCT], ξ_wct_m[wct_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_iglr_riser_m[iglr_bp in riser.IGLR], ξ_iglr_m[iglr_bp] == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_wct_riser_$m")
+    @constraint(model, [iglr_bp in manifold.IGLR], ξ_iglr_m[iglr_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-    ))
-    @constraint(model, sos2_qliq_riser_m, ξ_qliq_m[riser.Q_liq] in SOS2(riser.Q_liq))
-    @constraint(model, sos2_gor_riser_m, ξ_gor_m[riser.GOR] in SOS2(riser.GOR))
-    @constraint(model, sos2_wct_riser_m, ξ_wct_m[riser.WCT] in SOS2(riser.WCT))
-    @constraint(model, sos2_iglr_riser_m, ξ_iglr_m[riser.IGLR] in SOS2(riser.IGLR))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+    ), base_name="eta_iglr_riser_$m")
+    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
 
     ## Multilinear Interpolation
 
-    @variable(model, bilinear_left[riser.Q_liq, riser.GOR])
-    @variable(model, bilinear_right[riser.WCT, riser.IGLR])
+    bilinear_left = @variable(model, [manifold.Q_liq, manifold.GOR], base_name="bilinear_left_$m")
+    bilinear_right = @variable(model, [manifold.WCT, manifold.IGLR], base_name="bilinear_right_$m")
 
     # @NonlinearConstraint
-    @constraint(model, riser_bilinear_left[q_liq_bp in riser.Q_liq, gor_bp in riser.GOR],
-        bilinear_left[q_liq_bp, gor_bp] == ξ_qliq_m[q_liq_bp] * ξ_gor_m[gor_bp]
-    )
+    @constraint(model, [q_liq_bp in manifold.Q_liq, gor_bp in manifold.GOR],
+        bilinear_left[q_liq_bp, gor_bp] == ξ_qliq_m[q_liq_bp] * ξ_gor_m[gor_bp],
+    base_name="bilinear_left_riser_$m")
     # @NonlinearConstraint
-    @constraint(model, riser_bilinear_right[wct_bp in riser.WCT, iglr_bp in riser.IGLR],
-        bilinear_right[wct_bp, iglr_bp] == ξ_wct_m[wct_bp] * ξ_iglr_m[iglr_bp]
-    )
+    @constraint(model, [wct_bp in manifold.WCT, iglr_bp in manifold.IGLR],
+        bilinear_right[wct_bp, iglr_bp] == ξ_wct_m[wct_bp] * ξ_iglr_m[iglr_bp],
+    base_name="riser_bilinear_right_$m")
     # @NonlinearConstraint
-    @constraint(model, riser_bilinear[q_liq_bp in riser.Q_liq, gor_bp in riser.GOR, wct_bp in riser.WCT, iglr_bp in riser.IGLR],
-        λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp] == bilinear_left[q_liq_bp,gor_bp] * bilinear_right[wct_bp,iglr_bp]
-    )
+    @constraint(model, [q_liq_bp in manifold.Q_liq, gor_bp in manifold.GOR, wct_bp in manifold.WCT, iglr_bp in manifold.IGLR],
+        λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp] == bilinear_left[q_liq_bp,gor_bp] * bilinear_right[wct_bp,iglr_bp],
+    base_name="riser_bilinear_$m")
 
     ## Infeasible points
-    for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-            for wct_bp in riser.WCT
-                for iglr_bp in riser.IGLR
-                    if riser.ΔP[(q_liq_bp, gor_bp, wct_bp, iglr_bp)] < 0
+    for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+            for wct_bp in manifold.WCT
+                for iglr_bp in manifold.IGLR
+                    if manifold.ΔP[(q_liq_bp, gor_bp, wct_bp, iglr_bp)] < 0
                         @constraint(
                             model,
                             # infeasible_bps_vlp[n,iglr_bp,whp_bp,q_liq_bp],
@@ -377,12 +373,9 @@ end
 function add_platform(model::GenericModel, platform::Platform)
     N_sat = names(platform.satellite_wells)
 
-    if ~isnothing(platform.riser)
-        N_man = names(platform.riser.manifold_wells)
-
-        N = [N_sat ; N_man]
-    else
-        N = N_sat
+    N = copy(N_sat)
+    for manifold in platform.manifolds
+        N = [N ; names(manifold.wells)]
     end
 
     # Constraints
@@ -400,18 +393,21 @@ function add_platform(model::GenericModel, platform::Platform)
     )
 
     # the following constraints suit the add_manifold_riser function better
-    if ~isnothing(platform.riser)
+    for manifold in platform.manifolds
+        m = manifold.name
+
         ### (66d)
         @constraint(
-            model, manifold_wells_downstream_p[n in N_man],
-            variable_by_name(model, "dsp_$n") == variable_by_name(model, "p_sup_m")
-                                                 + variable_by_name(model, "ΔP")
+            model, [n in names(manifold.wells)],
+            variable_by_name(model, "dsp_$n") == variable_by_name(model, "p_sup_$m")
+                                                 + variable_by_name(model, "ΔP_$m"),
+            base_name="manifold_wells_downstream_p_$m"
         )
 
         ### (66e)
         @constraint(
-            model, downstream_pressure_manifold_m,
-            variable_by_name(model, "dsp_m") == platform.p_sep
+            model, base_name = "downstream_pressure_manifold_$m",
+            variable_by_name(model, "dsp_$m") == platform.p_sep
         )
     end
 
@@ -465,10 +461,10 @@ function get_minlp_problem(platform::Platform)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
     end
 
-    # Manifold
-    if ~isnothing(platform.riser)
-        model = add_nonlinear_riser(model, platform.riser, platform.p_sep)  # (65)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_m")
+    # Manifolds
+    for manifold in platform.manifolds
+        model = add_nonlinear_manifold(model, manifold, platform.p_sep)  # (65)
+        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
     # Platform
@@ -654,186 +650,182 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
-    N_man = names(riser.manifold_wells)  # names of all wells in manifold
+function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+    N_man = names(manifold.wells)  # names of all wells in manifold
 
-    for well in riser.manifold_wells
+    m = manifold.name
+
+    for well in manifold.wells
         model = add_linear_well(model, well)
     end
 
-    riser = Oil.PiecewiseLinearRiser(riser, p_sep, false)
+    manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
 
     # Variables
 
     ## Flow rates
-    @variables(model, begin
-        q_liq_m >= 0.0
-        q_oil_m >= 0.0
-        q_water_m >= 0.0
-        q_gas_m >= 0.0
-        q_inj_m >= 0.0
-    end)
+    q_liq_m = @variable(model, base_name="q_liq_$m", lower_bound = 0)
+    q_oil_m = @variable(model, base_name="q_oil_$m", lower_bound = 0)
+    q_water_m = @variable(model, base_name="q_water_$m", lower_bound = 0)
+    q_gas_m = @variable(model, base_name="q_gas_$m", lower_bound = 0)
+    q_inj_m = @variable(model, base_name="q_inj_$m", lower_bound = 0)
 
     ## Pressures
-    @variables(model, begin
-        dsp_m   >= 0.0  # manifold downstream pressure
-        p_sup_m >= 0.0  # manifold choke pressure
-        ΔP      >= 0.0  # riser pressure drop
-    end)
+    dsp_m = @variable(model, base_name="dsp_$m", lower_bound = 0)  # manifold downstream pressure
+    p_sup_m = @variable(model, base_name="p_sup_$m", lower_bound = 0)  # manifold choke pressure
+    ΔP = @variable(model, base_name="ΔP_$m", lower_bound = 0)  # riser pressure drop
 
     ## Parameters
-    @variables(model, begin
-        gor_m
-        wct_m
-        iglr_m
-    end)
+    gor_m = @variable(model, base_name="gor_$m")
+    wct_m = @variable(model, base_name="wct_$m")
+    iglr_m = @variable(model, base_name="iglr_$m")
 
     ## Discrete decisions
-    @variable(model, y_m, Bin)  # (65d)
+    y_m = @variable(model, base_name="y_$m", binary = true)  # (65d)
 
     ## VLP curve variables
-    λ_riser_m = @variable(model, [riser.Q_liq, riser.GOR, riser.WCT, riser.IGLR],
-                          lower_bound=0.0, base_name="λ_riser_m")  # (65d)
-    ξ_qliq_m = @variable(model, [riser.Q_liq], lower_bound=0.0, base_name="ξ_qliq_m")
-    ξ_gor_m = @variable(model, [riser.GOR], lower_bound=0.0, base_name="ξ_gor_m")
-    ξ_wct_m = @variable(model, [riser.WCT], lower_bound=0.0, base_name="ξ_wct_m")
-    ξ_iglr_m = @variable(model, [riser.IGLR], lower_bound=0.0, base_name="ξ_iglr_m")
+    λ_riser_m = @variable(model, [manifold.Q_liq, manifold.GOR, manifold.WCT, manifold.IGLR],
+                          lower_bound=0.0, base_name="λ_riser_$m")  # (65d)
+    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0, base_name="ξ_qliq_$m")
+    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0, base_name="ξ_gor_$m")
+    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
+    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
 
     # Constraints
 
     ## Manifold input
 
     ### (65a)
-    @constraint(model, manifold_liquid_rate, q_liq_m == sum(variable_by_name(model, "q_liq_$n") for n in N_man))
-    @constraint(model, manifold_oil_rate, q_oil_m == sum(variable_by_name(model, "q_oil_$n") for n in N_man))
-    @constraint(model, manifold_water_rate, q_water_m == sum(variable_by_name(model, "q_water_$n") for n in N_man))
-    @constraint(model, manifold_gas_rate, q_gas_m == sum(variable_by_name(model, "q_gas_$n") for n in N_man))
-    @constraint(model, manifold_inj_gas_rate, q_inj_m == sum(variable_by_name(model, "q_inj_$n") for n in N_man))
+    @constraint(model, q_liq_m == sum(variable_by_name(model, "q_liq_$n") for n in N_man), base_name="manifold_liquid_rate_$m")
+    @constraint(model, q_oil_m == sum(variable_by_name(model, "q_oil_$n") for n in N_man), base_name="manifold_oil_rate_$m")
+    @constraint(model, q_water_m == sum(variable_by_name(model, "q_water_$n") for n in N_man), base_name="manifold_water_rate_$m")
+    @constraint(model, q_gas_m == sum(variable_by_name(model, "q_gas_$n") for n in N_man), base_name="manifold_gas_rate_$m")
+    @constraint(model, q_inj_m == sum(variable_by_name(model, "q_inj_$n") for n in N_man), base_name="manifold_inj_gas_rate_$m")
 
     ## VLP
 
     ### (65b)
-    @constraint(model, pwl_qliq_riser_m, q_liq_m == sum(
+    @constraint(model, q_liq_m == sum(
         q_liq_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_gor_riser_m, gor_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qliq_riser_$m")
+    @constraint(model, gor_m == sum(
         gor_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_wct_riser_m, wct_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_gor_riser_$m")
+    @constraint(model, wct_m == sum(
         wct_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, pwl_iglr_riser_m, iglr_m == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_wct_riser_$m")
+    @constraint(model, iglr_m == sum(
         iglr_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, p_sup_upper, p_sup_m <= dsp_m + M_Pressure * (1 - y_m))
-    @constraint(model, riser_choke_dP, p_sup_m >= dsp_m - M_Pressure * (1 - y_m))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_iglr_riser_$m")
+    @constraint(model, p_sup_m <= dsp_m + M_Pressure * (1 - y_m), base_name="p_sup_upper_$m")
+    @constraint(model, p_sup_m >= dsp_m - M_Pressure * (1 - y_m), base_name="riser_choke_dP_$m")
 
     ### (65c)
-    @constraint(model, q_oil_m == q_liq_m - q_water_m, base_name = "bilinear_q_oil_riser_m")
+    @constraint(model, q_oil_m == q_liq_m - q_water_m, base_name = "bilinear_q_oil_riser_$m")
     # @PiecewiseRelaxation
-    @constraint(model, pwl_qoil_riser_m, q_oil_m == sum(
+    @constraint(model, q_oil_m == sum(
         q_liq_bp * (1 - wct_bp) * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qoil_riser_$m")
     # @PiecewiseRelaxation
-    @constraint(model, pwl_qwater_riser_m, q_water_m == sum(
+    @constraint(model, q_water_m == sum(
         q_liq_bp * wct_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qwater_riser_$m")
     # @PiecewiseRelaxation
-    @constraint(model, pwl_qgas_riser_m, q_gas_m == sum(
+    @constraint(model, q_gas_m == sum(
         q_liq_bp * (1 - wct_bp) * gor_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qgas_riser_$m")
     # @PiecewiseRelaxation
-    @constraint(model, pwl_qinj_riser_m, q_inj_m == sum(
+    @constraint(model, q_inj_m == sum(
         q_liq_bp * iglr_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_qinj_riser_$m")
 
-    @constraint(model, pwl_ΔP_riser_m, ΔP == sum(
-        riser.ΔP[q_liq_bp, gor_bp, wct_bp, iglr_bp] * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
+    @constraint(model, ΔP == sum(
+        manifold.ΔP[q_liq_bp, gor_bp, wct_bp, iglr_bp] * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_ΔP_riser_$m")
 
     ### (65d)
-    @constraint(model, pwl_riser_curve, y_m == sum(
+    @constraint(model, y_m == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, forced_activation_riser_m[n in N_man], y_m >= variable_by_name(model, "y_$n"))
-    @constraint(model, forced_deactivation_riser_m, y_m <= sum(variable_by_name(model, "y_$n") for n in N_man))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="pwl_riser_curve_$m")
+    @constraint(model, [n in N_man], y_m >= variable_by_name(model, "y_$n"), base_name="forced_activation_riser_$m")
+    @constraint(model, y_m <= sum(variable_by_name(model, "y_$n") for n in N_man), base_name="forced_deactivation_riser_$m")
 
     ### (65e)
-    @constraint(model, eta_qliq_riser_m[q_liq_bp in riser.Q_liq], ξ_qliq_m[q_liq_bp] == sum(
+    @constraint(model, [q_liq_bp in manifold.Q_liq], ξ_qliq_m[q_liq_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_gor_riser_m[gor_bp in riser.GOR], ξ_gor_m[gor_bp] == sum(
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_qliq_riser_$m")
+    @constraint(model, [gor_bp in manifold.GOR], ξ_gor_m[gor_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for wct_bp in riser.WCT
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_wct_riser_m[wct_bp in riser.WCT], ξ_wct_m[wct_bp] == sum(
+        for q_liq_bp in manifold.Q_liq
+        for wct_bp in manifold.WCT
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_gor_riser_$m")
+    @constraint(model, [wct_bp in manifold.WCT], ξ_wct_m[wct_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for iglr_bp in riser.IGLR
-    ))
-    @constraint(model, eta_iglr_riser_m[iglr_bp in riser.IGLR], ξ_iglr_m[iglr_bp] == sum(
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for iglr_bp in manifold.IGLR
+    ), base_name="eta_wct_riser_$m")
+    @constraint(model, [iglr_bp in manifold.IGLR], ξ_iglr_m[iglr_bp] == sum(
         λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
-        for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-        for wct_bp in riser.WCT
-    ))
-    @constraint(model, sos2_qliq_riser_m, ξ_qliq_m[riser.Q_liq] in SOS2(riser.Q_liq))
-    @constraint(model, sos2_gor_riser_m, ξ_gor_m[riser.GOR] in SOS2(riser.GOR))
-    @constraint(model, sos2_wct_riser_m, ξ_wct_m[riser.WCT] in SOS2(riser.WCT))
-    @constraint(model, sos2_iglr_riser_m, ξ_iglr_m[riser.IGLR] in SOS2(riser.IGLR))
+        for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+        for wct_bp in manifold.WCT
+    ), base_name="eta_iglr_riser_$m")
+    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
 
     ## Infeasible points
-    for q_liq_bp in riser.Q_liq
-        for gor_bp in riser.GOR
-            for wct_bp in riser.WCT
-                for iglr_bp in riser.IGLR
-                    if riser.ΔP[(q_liq_bp, gor_bp, wct_bp, iglr_bp)] < 0
+    for q_liq_bp in manifold.Q_liq
+        for gor_bp in manifold.GOR
+            for wct_bp in manifold.WCT
+                for iglr_bp in manifold.IGLR
+                    if manifold.ΔP[(q_liq_bp, gor_bp, wct_bp, iglr_bp)] < 0
                         @constraint(
                             model,
                             # infeasible_bps_vlp[n,iglr_bp,whp_bp,q_liq_bp],
@@ -860,10 +852,10 @@ function get_milp_relaxation(platform::Platform)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
     end
 
-    # Manifold
-    if ~isnothing(platform.riser)
-        model = add_linear_riser(model, platform.riser, platform.p_sep)  # (65)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_m")
+    # Manifolds
+    for manifold in platform.manifolds
+        model = add_linear_manifold(model, manifold, platform.p_sep)
+        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
     # Platform

@@ -71,8 +71,8 @@ end
 function fix_model!(P::GenericModel, vars)
     # get all wells in platform
     all_wells = platform.satellite_wells
-    if ~isnothing(platform.riser)
-        all_wells = all_wells ∪ platform.riser.manifold_wells
+    for manifold in platform.manifolds
+        all_wells = all_wells ∪ manifold.wells
     end
 
     ## FIXING SATELLITE WELL VARIABLES
@@ -128,14 +128,16 @@ function fix_model!(P::GenericModel, vars)
     end
 
     ## FIXING RISER VARIABLES
-    if ~isnothing(platform.riser)
+    for manifold in platform.manifolds
+        m = manifold.name
+
         # strategic decisions
-        y_value = first(value(v) for v in vars if name(v) == "y_m")
-        fix(variable_by_name(P, "y_m"), round(y_value))
+        y_value = first(value(v) for v in vars if name(v) == "y_$m")
+        fix(variable_by_name(P, "y_$m"), round(y_value))
 
         # VLP
         for x in ["qliq", "gor", "wct", "iglr"]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_m")]
+            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$m")]
             bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
 
             # sort according to breakpoints
@@ -177,8 +179,8 @@ function exclude!(P::GenericModel, vars)
 
     # get all wells in platform
     all_wells = platform.satellite_wells
-    if ~isnothing(platform.riser)
-        all_wells = all_wells ∪ platform.riser.manifold_wells
+    for manifold in platform.manifolds
+        all_wells = all_wells ∪ manifold.wells
     end
 
     ## ACTUAL FIXING
@@ -232,16 +234,18 @@ function exclude!(P::GenericModel, vars)
     end
 
     ## FIXING RISER VARIABLES
-    if ~isnothing(platform.riser)
+    for manifold in platform.manifolds
+        m = manifold.name
+
         # strategic decisions
-        y_value = first(value(v) for v in vars if name(v) == "y_m")
-        y_var = variable_by_name(P, "y_m")
+        y_value = first(value(v) for v in vars if name(v) == "y_$m")
+        y_var = variable_by_name(P, "y_$m")
 
         constraint_lhs += y_value * (1 - y_var) + (1-y_value) * y_var
 
         # VLP
         for x in ["qliq", "gor", "wct", "iglr"]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_m")]
+            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$m")]
             bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
 
             # sort according to breakpoints
