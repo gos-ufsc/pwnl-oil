@@ -550,16 +550,13 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
     ), base_name = "pwl_q_liq_vlp_$n")
 
     ### (62d)
-    # @McCormickEnvelope
-    q_liq_L = min(well.Q_liq_vlp...)
-    q_liq_U = max(well.Q_liq_vlp...)
-    # TODO: these can probably be tightened with well parameters and other constraints
-    iglr_L = min(well.IGLR...)
-    iglr_U = max(well.IGLR...)
-    @constraint(model, q_inj_n >= q_liq_L * iglr_n + q_liq_n * iglr_L - q_liq_L * iglr_L, base_name = "q_inj_n_nccormick_under_L")
-    @constraint(model, q_inj_n >= q_liq_U * iglr_n + q_liq_n * iglr_U - q_liq_U * iglr_U, base_name = "q_inj_n_nccormick_under_U")
-    @constraint(model, q_inj_n <= q_liq_U * iglr_n + q_liq_n * iglr_L - q_liq_U * iglr_L, base_name = "q_inj_n_nccormick_over_UL")
-    @constraint(model, q_inj_n <= q_liq_L * iglr_n + q_liq_n * iglr_U - q_liq_L * iglr_U, base_name = "q_inj_n_nccormick_over_LU")
+    # @PiecewiseRelaxation
+    @constraint(model, q_inj_n == sum(
+        q_liq_bp * iglr_bp * λ_vlp_n[iglr_bp, whp_bp, q_liq_bp]
+        for iglr_bp in well.IGLR
+        for whp_bp in well.WHP
+        for q_liq_bp in well.Q_liq_vlp
+    ), base_name = "pwl_q_inj_$n")
 
     ### (62e)
     @constraint(model, wfp_n == sum(
@@ -660,35 +657,9 @@ end
 function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
     N_man = names(riser.manifold_wells)  # names of all wells in manifold
 
-    # Bounds for McCormick Envelope
-    q_liq_lowers = Vector{Float64}()
-    q_liq_uppers = Vector{Float64}()
-    iglr_lowers = Vector{Float64}()
-    iglr_uppers = Vector{Float64}()
-    wcts = [well.wct for well in riser.manifold_wells]
-    gors = [well.gor for well in riser.manifold_wells]
-
     for well in riser.manifold_wells
         model = add_linear_well(model, well)
-
-        pwl_well = Oil.PiecewiseLinearWell(well, true)
-        push!(q_liq_lowers, min(pwl_well.Q_liq_vlp...))
-        push!(q_liq_uppers, max(pwl_well.Q_liq_vlp...))
-        # TODO: I believe these can be tightened through min/max_q_inj
-        push!(iglr_lowers, min(pwl_well.IGLR...))
-        push!(iglr_uppers, max(pwl_well.IGLR...))
     end
-
-    q_liq_L = sum(q_liq_lowers)
-    q_liq_U = sum(q_liq_uppers)
-    iglr_L = min(iglr_lowers...)
-    iglr_U = max(iglr_uppers...)
-    wct_L = min(wcts...)
-    wct_U = max(wcts...)
-    gor_L = min(gors...)
-    gor_U = max(gors...)
-    q_oil_L = q_liq_L * (1 - wct_U)
-    q_oil_U = q_liq_U * (1 - wct_L)
 
     riser = Oil.PiecewiseLinearRiser(riser, p_sep, false)
 
@@ -775,21 +746,38 @@ function add_linear_riser(model::GenericModel, riser::Riser, p_sep::Float64)
 
     ### (65c)
     @constraint(model, q_oil_m == q_liq_m - q_water_m, base_name = "bilinear_q_oil_riser_m")
-    # @McCormickEnvelope
-    @constraint(model, q_water_m >= q_liq_L * wct_m + q_liq_m * wct_L - q_liq_L * wct_L, base_name = "q_water_m_mccormick_under_L")
-    @constraint(model, q_water_m >= q_liq_U * wct_m + q_liq_m * wct_U - q_liq_U * wct_U, base_name = "q_water_m_mccormick_under_U")
-    @constraint(model, q_water_m <= q_liq_U * wct_m + q_liq_m * wct_L - q_liq_U * wct_L, base_name = "q_water_m_mccormick_over_UL")
-    @constraint(model, q_water_m <= q_liq_L * wct_m + q_liq_m * wct_U - q_liq_L * wct_U, base_name = "q_water_m_mccormick_over_LU")
-    # @McCormickEnvelope
-    @constraint(model, q_gas_m >= q_oil_L * gor_m + q_oil_m * gor_L - q_oil_L * gor_L, base_name = "q_gas_m_mccormick_under_L")
-    @constraint(model, q_gas_m >= q_oil_U * gor_m + q_oil_m * gor_U - q_oil_U * gor_U, base_name = "q_gas_m_mccormick_under_U")
-    @constraint(model, q_gas_m <= q_oil_U * gor_m + q_oil_m * gor_L - q_oil_U * gor_L, base_name = "q_gas_m_mccormick_over_UL")
-    @constraint(model, q_gas_m <= q_oil_L * gor_m + q_oil_m * gor_U - q_oil_L * gor_U, base_name = "q_gas_m_mccormick_over_LU")
-    # @McCormickEnvelope
-    @constraint(model, q_inj_m >= q_liq_L * iglr_m + q_liq_m * iglr_L - q_liq_L * iglr_L, base_name = "q_inj_m_mccormick_under_L")
-    @constraint(model, q_inj_m >= q_liq_U * iglr_m + q_liq_m * iglr_U - q_liq_U * iglr_U, base_name = "q_inj_m_mccormick_under_U")
-    @constraint(model, q_inj_m <= q_liq_U * iglr_m + q_liq_m * iglr_L - q_liq_U * iglr_L, base_name = "q_inj_m_mccormick_over_UL")
-    @constraint(model, q_inj_m <= q_liq_L * iglr_m + q_liq_m * iglr_U - q_liq_L * iglr_U, base_name = "q_inj_m_mccormick_over_LU")
+    # @PiecewiseRelaxation
+    @constraint(model, pwl_qoil_riser_m, q_oil_m == sum(
+        q_liq_bp * (1 - wct_bp) * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in riser.Q_liq
+        for gor_bp in riser.GOR
+        for wct_bp in riser.WCT
+        for iglr_bp in riser.IGLR
+    ))
+    # @PiecewiseRelaxation
+    @constraint(model, pwl_qwater_riser_m, q_water_m == sum(
+        q_liq_bp * wct_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in riser.Q_liq
+        for gor_bp in riser.GOR
+        for wct_bp in riser.WCT
+        for iglr_bp in riser.IGLR
+    ))
+    # @PiecewiseRelaxation
+    @constraint(model, pwl_qgas_riser_m, q_gas_m == sum(
+        q_liq_bp * (1 - wct_bp) * gor_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in riser.Q_liq
+        for gor_bp in riser.GOR
+        for wct_bp in riser.WCT
+        for iglr_bp in riser.IGLR
+    ))
+    # @PiecewiseRelaxation
+    @constraint(model, pwl_qinj_riser_m, q_inj_m == sum(
+        q_liq_bp * iglr_bp * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
+        for q_liq_bp in riser.Q_liq
+        for gor_bp in riser.GOR
+        for wct_bp in riser.WCT
+        for iglr_bp in riser.IGLR
+    ))
 
     @constraint(model, pwl_ΔP_riser_m, ΔP == sum(
         riser.ΔP[q_liq_bp, gor_bp, wct_bp, iglr_bp] * λ_riser_m[q_liq_bp, gor_bp, wct_bp, iglr_bp]
