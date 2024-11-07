@@ -4,7 +4,7 @@ include("models.jl")
 include("utils.jl")
 
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
-time_budget = 60.0 * 5  # 5 minutes budget
+time_budget = 60.0 * 60 * 40  # 5 minutes budget
 
 platform = Platform(
     10.001 * kgf + g,
@@ -19,23 +19,23 @@ platform = Platform(
             [
                 Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
                 Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
-                # Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
-                # Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
-            ],
-            choke_enabled = false
-        ),
-        Manifold(
-            VLP("data/MSP_UEP_VFP.Ecl"),
-            [
-                # Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
-                # Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
                 Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
                 Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
             ],
             choke_enabled = false
         ),
+        # Manifold(
+        #     VLP("data/MSP_UEP_VFP.Ecl"),
+        #     [
+        #         # Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
+        #         # Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
+        #         Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
+        #         Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
+        #     ],
+        #     choke_enabled = false
+        # ),
     ],
-    q_inj_max=800*1e3
+    q_inj_max=8000*1e3
 )
 
 # ALGORITHM

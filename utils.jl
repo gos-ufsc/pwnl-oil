@@ -60,15 +60,24 @@ function solve(P; time_limit = ∞, save_bounds=nothing)
     return C, vars
 end
 
-function milp_solver(P::GenericModel; time_limit = Inf)
-    return solve(P, time_limit = time_limit, save_bounds = "upper")
+function milp_solver(P::GenericModel; time_limit = Inf, save_bounds = false)
+    if save_bounds
+        return solve(P, time_limit = time_limit, save_bounds = "upper")
+    else
+        return solve(P, time_limit = time_limit)
+    end
 end
 
-function nlp_solver(P::GenericModel; time_limit = Inf)
-    return solve(P, time_limit = time_limit, save_bounds = "lower")
+function nlp_solver(P::GenericModel; time_limit = Inf, save_bounds = false)
+    if save_bounds
+        return solve(P, time_limit = time_limit, save_bounds = "lower")
+    else
+        return solve(P, time_limit = time_limit)
+    end
 end
 
 function fix_model!(P::GenericModel, vars)
+    fix_tol = 1e-6
     # get all wells in platform
     all_wells = platform.satellite_wells
     for manifold in platform.manifolds
@@ -93,25 +102,27 @@ function fix_model!(P::GenericModel, vars)
             sort_ix = sortperm(bps)
             ξ = ξ[sort_ix]
             bps = bps[sort_ix]
-
             # filter breakpoints NOT to fix (considering solver tolerance)
-            ξ_not_to_fix = ξ[abs.(value.(ξ)) .> 1e-6]
+            ξ_not_to_fix = ξ[abs.(value.(ξ)) .> fix_tol]
+            println("Before TREATMENT:ξ_not_to_fix para $(x)_$(well.name): ", ξ_not_to_fix)
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+                bp_not_to_fix = only(bps[value.(ξ) .> fix_tol])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
                     push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
+                else
                     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
                 end
 
-                @assert length(ξ_not_to_fix) >= 2
-            end
+                # if bp_not_to_fix < bps[end]
+                #     # add to not-to-fix the breakpoint right after the one in `model1` solution
+                #     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
+                # end
 
+                @assert length(ξ_not_to_fix) == 2
+            end
+            println("AFTER TREATMENT:ξ_not_to_fix para $(x)_$(well.name): ", ξ_not_to_fix)
             # fix breakpoints to 0 => restrict to the segment with the nonzero bps
             for ξ_i in ξ
                 # reset previous fixing
@@ -144,26 +155,30 @@ function fix_model!(P::GenericModel, vars)
             sort_ix = sortperm(bps)
             ξ = ξ[sort_ix]
             bps = bps[sort_ix]
-
+            
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
+            ξ_not_to_fix = ξ[value.(ξ) .> fix_tol]
+            println("BEFORE TREATMENT FIXING: ξ_not_to_fix para $(x)_$(m): ", ξ_not_to_fix)
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+                bp_not_to_fix = only(bps[value.(ξ) .> fix_tol])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
                     push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
+                else
                     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
                 end
 
-                @assert length(ξ_not_to_fix) >= 2
-                @assert length(ξ_not_to_fix) <= 3
+                # if bp_not_to_fix < bps[end]
+                #     # add to not-to-fix the breakpoint right after the one in `model1` solution
+                #     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
+                # end
+
+                @assert length(ξ_not_to_fix) == 2
+                # @assert length(ξ_not_to_fix) <= 3
             end
 
+            println("AFTER TREATMENT FIXING: ξ_not_to_fix para $(x)_$(m): ", ξ_not_to_fix)
             # fix breakpoints to 0 => restrict to the segment with the nonzero bps
             for ξ_i in ξ
                 if ~(ξ_i in ξ_not_to_fix)
@@ -176,6 +191,7 @@ end
 
 function exclude!(P::GenericModel, vars)
     constraint_lhs = 0
+    fix_tol = 1e-6
 
     # get all wells in platform
     all_wells = platform.satellite_wells
@@ -208,21 +224,24 @@ function exclude!(P::GenericModel, vars)
             bps = bps[sort_ix]
 
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
+            ξ_not_to_fix = ξ[value.(ξ) .> fix_tol]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+                bp_not_to_fix = only(bps[value.(ξ) .> fix_tol])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
                     push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
+                else
                     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
                 end
 
-                @assert length(ξ_not_to_fix) >= 2
+                # if bp_not_to_fix < bps[end]
+                #     # add to not-to-fix the breakpoint right after the one in `model1` solution
+                #     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
+                # end
+
+                # @assert length(ξ_not_to_fix) >= 2
+                @assert length(ξ_not_to_fix) == 2
             end
 
             for ξ_i in ξ
@@ -254,22 +273,25 @@ function exclude!(P::GenericModel, vars)
             bps = bps[sort_ix]
 
             # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
+            ξ_not_to_fix = ξ[value.(ξ) .> fix_tol]
             if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+                bp_not_to_fix = only(bps[value.(ξ) .> fix_tol])
 
                 if bp_not_to_fix > bps[1]
                     # add to not-to-fix the breakpoint just before the one in `model1` solution
                     push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
+                else
                     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
                 end
 
-                @assert length(ξ_not_to_fix) >= 2
-                @assert length(ξ_not_to_fix) <= 3
+                # if bp_not_to_fix < bps[end]
+                #     # add to not-to-fix the breakpoint right after the one in `model1` solution
+                #     push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
+                # end
+# s
+                # @assert length(ξ_not_to_fix) >= 2
+                # @assert length(ξ_not_to_fix) <= 3
+                @assert length(ξ_not_to_fix) == 2
             end
 
             # fix breakpoints to 0 => restrict to the segment with the nonzero bps
@@ -281,7 +303,7 @@ function exclude!(P::GenericModel, vars)
         end
     end
 
-    @constraint(P, constraint_lhs >= 1e-3)
+    @constraint(P, constraint_lhs >= fix_tol)
 end
 
 function check_points_is_feasible(P, vars)
@@ -307,3 +329,5 @@ function check_points_is_feasible(P, vars)
         return false
     end
 end
+
+

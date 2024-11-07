@@ -378,7 +378,19 @@ function add_platform(model::GenericModel, platform::Platform)
         N = [N ; names(manifold.wells)]
     end
 
+    # Varibles
+    q_inj_platform = @variable(model, base_name="q_inj_platform", lower_bound=0.0)
+    q_liq_platform = @variable(model, base_name="q_liq_platform", lower_bound=0.0)
     # Constraints
+
+    @constraint(
+        model, q_inj_platform,
+        variable_by_name(model, "q_inj_platform") == sum(variable_by_name(model, "q_inj_$n") for n in N)
+    )
+    @constraint(
+        model, q_liq_platform,
+        variable_by_name(model, "q_liq_platform") == sum(variable_by_name(model, "q_liq_$n") for n in N)
+    )
 
     ### (64b)/(66b)
     @constraint(
