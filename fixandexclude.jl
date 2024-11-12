@@ -6,36 +6,35 @@ include("utils.jl")
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
 time_budget = 60.0 * 5  # 5 minutes budget
 
+# SCENARIO 3
 platform = Platform(
     10.001 * kgf + g,
     # satellite_wells = Vector{Well}(),
     satellite_wells = [
-        Well("P05", 65.0, 0.55, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_UEP_VLP.Ecl"), IPR(175.0 * kgf + g, 44.123932 * (m3 / d) / kgf)),
-        Well("P13", 70.0, 0.25, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_UEP_VLP.Ecl"), IPR(220.0 * kgf + g, 117.64259 * (m3 / d) / kgf)),
+        Well("P21", 45.0, 0.30, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(190.0 * kgf + g, 59.55 * (m3 / d) / kgf)),
+        Well("P22", 85.0, 0.10, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(210.0 * kgf + g, 102.33 * (m3 / d) / kgf)),
+        # Well("P23", 60.0, 0.44, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(185.0 * kgf + g, 76.22 * (m3 / d) / kgf)),
     ],
     manifolds = [
         Manifold(
             VLP("data/MSP_UEP_VFP.Ecl"),
             [
-                Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
-                Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
-                # Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
-                # Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
+                Well("P31", 90.0, 0.15, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(195 * kgf + g, 88.21 * (m3 / d) / kgf)),
+                Well("P32", 130.0, 0.47, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(215.0 * kgf + g, 55.34 * (m3 / d) / kgf)),
+                # Well("P33", 105.0, 0.21, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(205.0 * kgf + g, 34.12 * (m3 / d) / kgf)),
             ],
             choke_enabled = false
         ),
-        Manifold(
-            VLP("data/MSP_UEP_VFP.Ecl"),
-            [
-                # Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
-                # Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
-                Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
-                Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
-            ],
-            choke_enabled = false
-        ),
+        # Manifold(
+        #     VLP("data/MSP_UEP_VFP.Ecl"),
+        #     [
+        #         Well("P41", 140.0, 0.42, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(225.0 * kgf + g, 72.45 * (m3 / d) / kgf)),
+        #         Well("P42", 115.0, 0.27, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(175.0 * kgf + g, 43.29 * (m3 / d) / kgf)),
+        #         Well("P43", 155.0, 0.70, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(230.0 * kgf + g, 67.88 * (m3 / d) / kgf)),
+        #     ],
+        #     choke_enabled = false
+        # ),
     ],
-    q_inj_max=800*1e3
 )
 
 # ALGORITHM
@@ -58,10 +57,21 @@ C_relax, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - 
 
 global i = 0
 while (C_relax < C_minlp) & (time() - start_time < time_budget)
+    # fixing values dictate the region which we are going to explore in this iteration
+    fixing_values = get_fixing_values(vars_relax, platform)
+
     @printf("| %5d | %15f | %15f | %14f%% | %9fs |\n", i, C_relax, C_minlp, 100*abs(C_minlp - C_relax) / abs(C_minlp), time()-start_time)
     # 4. Build P_fixed by constraining P to x_relax
-    fix_model!(P_minlp, vars_relax)
+    fix_model!(P_minlp, fixing_values)
     C_fixed = ∞
+
+    # add lower-bound valid inequality
+    valid_ineq = constraint_by_name(P_minlp, "valid_ineq")
+    if isnothing(valid_ineq)
+        @constraint(P_minlp, -variable_by_name(P_minlp, "q_oil_total") >= C_relax)
+    else
+        set_normalized_rhs(valid_ineq, C_relax)
+    end
 
     # 5. Solve P_fixed, update x and C
     C_fixed, vars_fixed = nlp_solver(P_minlp, time_limit = time_budget - (time() - start_time))
@@ -76,12 +86,20 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     end
 
     # 6. Exclude x_relax from P_relax
-    exclude!(P_relax, vars_relax)
+    exclude!(P_relax, fixing_values)
 
     # Just for debugging purposes!
     # TODO: this is breaking because it tries to access the values of the variables after
     # the model has been modified.
     # @assert ~check_points_is_feasible(P_relax, vars_relax)
+
+    # add lower-bound valid inequality
+    valid_ineq = constraint_by_name(P_relax, "valid_ineq")
+    if isnothing(valid_ineq)
+        @constraint(P_relax, -variable_by_name(P_relax, "q_oil_total") >= C_relax)
+    else
+        set_normalized_rhs(valid_ineq, C_relax)
+    end
 
     # 7. Solve P_relax, get solution x_relax and C_relax
     global C_relax, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - start_time))

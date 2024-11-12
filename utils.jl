@@ -60,228 +60,122 @@ function solve(P; time_limit = ∞, save_bounds=nothing)
     return C, vars
 end
 
-function milp_solver(P::GenericModel; time_limit = Inf)
-    return solve(P, time_limit = time_limit, save_bounds = "upper")
-end
-
-function nlp_solver(P::GenericModel; time_limit = Inf)
-    return solve(P, time_limit = time_limit, save_bounds = "lower")
-end
-
-function fix_model!(P::GenericModel, vars)
-    # get all wells in platform
-    all_wells = platform.satellite_wells
-    for manifold in platform.manifolds
-        all_wells = all_wells ∪ manifold.wells
+function milp_solver(P::GenericModel; time_limit = Inf, save_bounds = false)
+    if save_bounds
+        return solve(P, time_limit = time_limit, save_bounds = "upper")
+    else
+        return solve(P, time_limit = time_limit)
     end
+end
 
-    ## FIXING SATELLITE WELL VARIABLES
-    for well in all_wells
-        # strategic decisions
-        y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
-        fix(variable_by_name(P, "y_$(well.name)"), round(y_value), force = true)
+function nlp_solver(P::GenericModel; time_limit = Inf, save_bounds = false)
+    if save_bounds
+        return solve(P, time_limit = time_limit, save_bounds = "lower")
+    else
+        return solve(P, time_limit = time_limit)
+    end
+end
 
-        t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
-        fix(variable_by_name(P, "t_gl_$(well.name)"), round(t_gl_value), force = true)
+function get_vlp_fixing_values(vars::Vector{VariableRef}, name::String, dimensions::Vector{String}; int_tol=1e-6)::Dict{String, Int64}
+    fixing_values = Dict{String, Int64}()
 
-        # VLP
-        for x in ["iglr", "whp", "qliq_vlp"]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$(well.name)")]
-            bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
+    for x in dimensions
+        ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$(name)")]
+        bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
 
-            # sort according to breakpoints
-            sort_ix = sortperm(bps)
-            ξ = ξ[sort_ix]
-            bps = bps[sort_ix]
+        # sort according to breakpoints
+        sort_ix = sortperm(bps)
+        ξ = ξ[sort_ix]
+        bps = bps[sort_ix]
 
-            # filter breakpoints NOT to fix (considering solver tolerance)
-            ξ_not_to_fix = ξ[abs.(value.(ξ)) .> 1e-6]
-            if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+        # filter breakpoints NOT to fix (considering solver tolerance)
+        ξ_not_to_fix = ξ[abs.(value.(ξ)) .> int_tol]
+        if length(ξ_not_to_fix) == 1
+            bp_not_to_fix = only(bps[value.(ξ) .> int_tol])
 
-                if bp_not_to_fix > bps[1]
-                    # add to not-to-fix the breakpoint just before the one in `model1` solution
-                    push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
-                    push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
-                end
-
-                @assert length(ξ_not_to_fix) >= 2
+            if bp_not_to_fix == bps[1]
+                # add to not-to-fix the breakpoint right after the one in `model1` solution
+                push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
+            else
+                # add to not-to-fix the breakpoint just before the one in `model1` solution
+                push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
             end
 
-            # fix breakpoints to 0 => restrict to the segment with the nonzero bps
-            for ξ_i in ξ
-                # reset previous fixing
-                if is_fixed(ξ_i)
-                    unfix(ξ_i)
-                    set_lower_bound(ξ_i, 0.0)
-                end
+            @assert length(ξ_not_to_fix) == 2
+        end
 
-                if ~(ξ_i in ξ_not_to_fix)
-                    fix(variable_by_name(P, string(ξ_i)), 0, force=true)
-                end
-            end
+        for ξ_i in setdiff(ξ, ξ_not_to_fix)
+            fixing_values[string(ξ_i)] = 0
         end
     end
 
-    ## FIXING RISER VARIABLES
+    return fixing_values
+end
+
+function get_fixing_values(vars::Vector{VariableRef}, platform::Platform; int_tol = 1e-6)::Dict{String, Int64}
+    fixing_values = Dict{String, Int64}()
+
+    # Get well variables
+    for well in all_wells(platform)
+        # strategic decisions
+        y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
+        fixing_values["y_$(well.name)"] = round(y_value)
+
+        t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
+        fixing_values["t_gl_$(well.name)"] = round(t_gl_value)
+
+        # VLP
+        merge!(fixing_values, get_vlp_fixing_values(vars, well.name, ["iglr", "whp", "qliq_vlp"], int_tol=int_tol))
+    end
+
+    # Get manifold variables
     for manifold in platform.manifolds
         m = manifold.name
 
         # strategic decisions
         y_value = first(value(v) for v in vars if name(v) == "y_$m")
-        fix(variable_by_name(P, "y_$m"), round(y_value))
+        fixing_values["y_$m"] = round(y_value)
 
         # VLP
-        for x in ["qliq", "gor", "wct", "iglr"]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$m")]
-            bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
+        merge!(fixing_values, get_vlp_fixing_values(vars, m, ["qliq", "gor", "wct", "iglr"], int_tol=int_tol))
+    end
 
-            # sort according to breakpoints
-            sort_ix = sortperm(bps)
-            ξ = ξ[sort_ix]
-            bps = bps[sort_ix]
+    return fixing_values
+end
 
-            # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
-            if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
+function fix_model!(P::GenericModel, fixing_values::Dict{String, Int64})
+    # unfix ξ variables
+    for v in all_variables(P)
+        if is_fixed(v)
+            unfix(v)
 
-                if bp_not_to_fix > bps[1]
-                    # add to not-to-fix the breakpoint just before the one in `model1` solution
-                    push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
-                    push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
-                end
-
-                @assert length(ξ_not_to_fix) >= 2
-                @assert length(ξ_not_to_fix) <= 3
-            end
-
-            # fix breakpoints to 0 => restrict to the segment with the nonzero bps
-            for ξ_i in ξ
-                if ~(ξ_i in ξ_not_to_fix)
-                    fix(variable_by_name(P, string(ξ_i)), 0, force=true)
-                end
+            if startswith(name(v), "ξ")
+                set_lower_bound(v, 0.0)
             end
         end
     end
+
+    # fix variables
+    for (var_name, value) in fixing_values
+        var = variable_by_name(P, var_name)
+        fix(var, value, force=true)
+    end
 end
 
-function exclude!(P::GenericModel, vars)
+function exclude!(P::GenericModel, fixing_values::Dict{String, Int64}; int_tol=1e-6)
     constraint_lhs = 0
 
-    # get all wells in platform
-    all_wells = platform.satellite_wells
-    for manifold in platform.manifolds
-        all_wells = all_wells ∪ manifold.wells
-    end
+    for (var_name, value) in fixing_values
+        var = variable_by_name(P, var_name)
 
-    ## ACTUAL FIXING
-    for well in all_wells
-        # strategic decisions
-        y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
-        y_var = variable_by_name(P, "y_$(well.name)")
-
-        constraint_lhs += y_value * (1 - y_var) + (1-y_value) * y_var
-
-        t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
-        t_gl_var = variable_by_name(P, "t_gl_$(well.name)")
-
-        constraint_lhs += t_gl_value * (1 - t_gl_var) + (1 - t_gl_value) * t_gl_var
-
-        # VLP
-        for x in ["iglr", "whp", "qliq_vlp"]
-        # for x in ["iglr",]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$(well.name)")]
-            bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
-
-            # sort according to breakpoints
-            sort_ix = sortperm(bps)
-            ξ = ξ[sort_ix]
-            bps = bps[sort_ix]
-
-            # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
-            if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
-
-                if bp_not_to_fix > bps[1]
-                    # add to not-to-fix the breakpoint just before the one in `model1` solution
-                    push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
-                    push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
-                end
-
-                @assert length(ξ_not_to_fix) >= 2
-            end
-
-            for ξ_i in ξ
-                if ~(ξ_i in ξ_not_to_fix)
-                    constraint_lhs += variable_by_name(P, string(ξ_i))
-                end
-            end
+        if startswith(var_name, "ξ")
+            constraint_lhs += var
+        else
+            constraint_lhs += value * (1 - var) + (1 - value) * var
         end
     end
 
-    ## FIXING RISER VARIABLES
-    for manifold in platform.manifolds
-        m = manifold.name
-
-        # strategic decisions
-        y_value = first(value(v) for v in vars if name(v) == "y_$m")
-        y_var = variable_by_name(P, "y_$m")
-
-        constraint_lhs += y_value * (1 - y_var) + (1-y_value) * y_var
-
-        # VLP
-        for x in ["qliq", "gor", "wct", "iglr"]
-            ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$m")]
-            bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
-
-            # sort according to breakpoints
-            sort_ix = sortperm(bps)
-            ξ = ξ[sort_ix]
-            bps = bps[sort_ix]
-
-            # filter breakpoints NOT to fix
-            ξ_not_to_fix = ξ[value.(ξ) .> 1e-6]
-            if length(ξ_not_to_fix) == 1
-                bp_not_to_fix = only(bps[value.(ξ) .> 1e-6])
-
-                if bp_not_to_fix > bps[1]
-                    # add to not-to-fix the breakpoint just before the one in `model1` solution
-                    push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-                end
-
-                if bp_not_to_fix < bps[end]
-                    # add to not-to-fix the breakpoint right after the one in `model1` solution
-                    push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
-                end
-
-                @assert length(ξ_not_to_fix) >= 2
-                @assert length(ξ_not_to_fix) <= 3
-            end
-
-            # fix breakpoints to 0 => restrict to the segment with the nonzero bps
-            for ξ_i in ξ
-                if ~(ξ_i in ξ_not_to_fix)
-                    constraint_lhs += variable_by_name(P, string(ξ_i))
-                end
-            end
-        end
-    end
-
-    @constraint(P, constraint_lhs >= 1e-3)
+    @constraint(P, constraint_lhs >= 1e-2)
 end
 
 function check_points_is_feasible(P, vars)
@@ -292,7 +186,6 @@ function check_points_is_feasible(P, vars)
 
     for v in vars
         if ~(startswith(name(v), "ξ") || startswith(name(v), "λ"))
-            println(name(v), " = ", value(v))
             fix(variable_by_name(P_, name(v)), value(v), force=true)
         end
     end
@@ -307,3 +200,4 @@ function check_points_is_feasible(P, vars)
         return false
     end
 end
+

@@ -453,24 +453,26 @@ function get_minlp_problem(platform::Platform)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
-    q_oil_total = 0
+    @variable(model, q_oil_total >= 0)
+    q_oil_total_expr = 0  # modeled like this to facilitate LBD valid inequality
 
     # Wells
     for well in platform.satellite_wells
         model = add_nonlinear_well(model, well)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
+        q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
         model = add_nonlinear_manifold(model, manifold, platform.p_sep)  # (65)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
+        q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
     # Platform
     model = add_platform(model, platform)
 
     # Objective
+    @constraint(model, q_oil_total == q_oil_total_expr)
     @objective(model, Max, q_oil_total)  # (64a)/(66a)
 
     return model
@@ -844,24 +846,26 @@ function get_milp_relaxation(platform::Platform)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
-    q_oil_total = 0
+    @variable(model, q_oil_total >= 0)
+    q_oil_total_expr = 0  # modeled like this to facilitate LBD valid inequality
 
     # Wells
     for well in platform.satellite_wells
         model = add_linear_well(model, well)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
+        q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
         model = add_linear_manifold(model, manifold, platform.p_sep)
-        q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
+        q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
     # Platform
     model = add_platform(model, platform)
 
     # Objective
+    @constraint(model, q_oil_total == q_oil_total_expr)
     @objective(model, Max, q_oil_total)  # (64a)/(66a)
 
     return model
