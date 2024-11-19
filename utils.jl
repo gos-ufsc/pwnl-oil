@@ -174,6 +174,115 @@ function fix_model!(P::GenericModel, vars)
     end
 end
 
+function fix_model_with_binary!(P::GenericModel, vars)
+    # get all wells in platform
+    all_wells = platform.satellite_wells
+    for manifold in platform.manifolds
+        all_wells = all_wells ∪ manifold.wells
+    end
+
+    ## FIXING SATELLITE WELL VARIABLES
+    for well in all_wells
+        # Strategic decisions
+        y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
+        fix(variable_by_name(P, "y_$(well.name)"), round(y_value), force=true)
+
+        t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
+        fix(variable_by_name(P, "t_gl_$(well.name)"), round(t_gl_value), force=true)
+
+        # Fixing binary variables (z) for VLP
+        for x in ["iglr", "whp", "qliq_vlp"]
+            z_vars = [v for v in vars if startswith(string(v), "z_$(x)_$(well.name)")]
+
+            for z_var in z_vars
+                # Fix each binary variable to its rounded value
+                fix(variable_by_name(P, string(z_var)), round(value(z_var)), force=true)
+            end
+        end
+    end
+
+    ## FIXING MANIFOLD VARIABLES
+    for manifold in platform.manifolds
+        # Strategic decisions
+        y_value = first(value(v) for v in vars if name(v) == "y_$(manifold.name)")
+        fix(variable_by_name(P, "y_$(manifold.name)"), round(y_value), force=true)
+
+        # Fixing binary variables (z) for manifold VLP
+        for x in ["qliq", "gor", "wct", "iglr"]
+            z_vars = [v for v in vars if startswith(string(v), "z_$(x)_$(manifold.name)")]
+
+            for z_var in z_vars
+                # Fix each binary variable to its rounded value
+                fix(variable_by_name(P, string(z_var)), round(value(z_var)), force=true)
+            end
+        end
+    end
+end
+
+function exclude_with_binary!(P::GenericModel, vars)
+    constraint_lhs = 0
+
+    # Get all wells in the platform
+    all_wells = platform.satellite_wells
+    for manifold in platform.manifolds
+        all_wells = all_wells ∪ manifold.wells
+    end
+
+    ## Exclude Satellite Well Variables
+    for well in all_wells
+        # Strategic decisions
+        y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
+        y_var = variable_by_name(P, "y_$(well.name)")
+
+        constraint_lhs += y_value * (1 - y_var) + (1 - y_value) * y_var
+
+        t_gl_value = first(value(v) for v in vars if name(v) == "t_gl_$(well.name)")
+        t_gl_var = variable_by_name(P, "t_gl_$(well.name)")
+
+        constraint_lhs += t_gl_value * (1 - t_gl_var) + (1 - t_gl_value) * t_gl_var
+
+        # Binary variables for VLP
+        for x in ["iglr", "whp", "qliq_vlp"]
+            z_vars = [v for v in vars if startswith(string(v), "z_$(x)_$(well.name)")]
+
+            for z_var in z_vars
+                # println("z befone round", z_var)
+                z_value = round(value(z_var))
+                # println("z after round", z_value)
+                z_binary = variable_by_name(P, string(z_var))
+                constraint_lhs += z_value * (1 - z_binary) + (1 - z_value) * z_binary
+            end
+        end
+    end
+
+    ## Exclude Riser Variables
+    for manifold in platform.manifolds
+        m = manifold.name
+
+        # Strategic decisions
+        y_value = first(value(v) for v in vars if name(v) == "y_$m")
+        y_var = variable_by_name(P, "y_$m")
+
+        constraint_lhs += y_value * (1 - y_var) + (1 - y_value) * y_var
+
+        # Binary variables for VLP
+        for x in ["qliq", "gor", "wct", "iglr"]
+            z_vars = [v for v in vars if startswith(string(v), "z_$(x)_$m")]
+
+            for z_var in z_vars
+                # println("z befone round", z_var)
+                z_value = round(value(z_var))
+                # println("z after round", z_value)
+                z_binary = variable_by_name(P, string(z_var))
+                constraint_lhs += z_value * (1 - z_binary) + (1 - z_value) * z_binary
+            end
+        end
+    end
+
+    # Add the exclusion constraint
+    @constraint(P, constraint_lhs >= 1)
+end
+
 function exclude!(P::GenericModel, vars)
     constraint_lhs = 0
 
@@ -281,7 +390,7 @@ function exclude!(P::GenericModel, vars)
         end
     end
 
-    @constraint(P, constraint_lhs >= 1e-3)
+    @constraint(P, constraint_lhs >= 1e-2)
 end
 
 function check_points_is_feasible(P, vars)

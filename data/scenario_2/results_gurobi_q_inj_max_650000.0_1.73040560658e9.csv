@@ -1,0 +1,7 @@
+first,second
+relative_gap,9.703069003056446e-5
+lower_bound,3580.642651236528
+runtime,1397.9720389842987
+constraint_value,650000.0
+objective_value,3580.2952527176435
+constraint_name,q_inj_max

@@ -4,51 +4,50 @@ include("models.jl")
 include("utils.jl")
 
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
-time_budget = 60.0 * 5  # 5 minutes budget
+time_budget = 60.0 * 60.0 * 24  # 5 minutes budget
 
 platform = Platform(
     10.001 * kgf + g,
     # satellite_wells = Vector{Well}(),
     satellite_wells = [
-        Well("P05", 65.0, 0.55, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_UEP_VLP.Ecl"), IPR(175.0 * kgf + g, 44.123932 * (m3 / d) / kgf)),
-        Well("P13", 70.0, 0.25, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_UEP_VLP.Ecl"), IPR(220.0 * kgf + g, 117.64259 * (m3 / d) / kgf)),
+        Well("P21", 45.0, 0.30, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(190.0 * kgf + g, 59.55 * (m3 / d) / kgf)),
+        Well("P22", 85.0, 0.10, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(210.0 * kgf + g, 102.33 * (m3 / d) / kgf)),
+        Well("P23", 60.0, 0.44, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_UEP_VLP.Ecl"), IPR(185.0 * kgf + g, 76.22 * (m3 / d) / kgf)),
     ],
     manifolds = [
         Manifold(
             VLP("data/MSP_UEP_VFP.Ecl"),
             [
-                Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
-                Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
-                # Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
-                # Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
+                Well("P31", 90.0, 0.15, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(195 * kgf + g, 88.21 * (m3 / d) / kgf)),
+                Well("P32", 130.0, 0.47, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(215.0 * kgf + g, 55.34 * (m3 / d) / kgf)),
+                Well("P33", 105.0, 0.21, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(205.0 * kgf + g, 34.12 * (m3 / d) / kgf)),
             ],
             choke_enabled = false
         ),
         Manifold(
             VLP("data/MSP_UEP_VFP.Ecl"),
             [
-                # Well("P01", 70.0, 0.10, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(200*kgf + g, 98.11 * (m3 / d) / kgf)),
-                # Well("P02", 120.0, 0.50, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(180.0 * kgf + g, 48.33 * (m3 / d) / kgf)),
-                Well("P03", 100.0, 0.05, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(170.0 * kgf + g, 28.08 * (m3 / d) / kgf)),
-                Well("P04", 150.0, 0.75, 100 * 1e3*m3/d, 200 * 1e3*m3/d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(220.0 * kgf + g, 73.01 * (m3 / d) / kgf)),
+                Well("P41", 140.0, 0.42, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(225.0 * kgf + g, 72.45 * (m3 / d) / kgf)),
+                Well("P42", 115.0, 0.27, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(175.0 * kgf + g, 43.29 * (m3 / d) / kgf)),
+                Well("P43", 155.0, 0.70, 100 * 1e3 * m3 / d, 200 * 1e3 * m3 / d, VLP("data/Well_SubseaManifold_VLP.Ecl"), IPR(230.0 * kgf + g, 67.88 * (m3 / d) / kgf)),
             ],
             choke_enabled = false
         ),
     ],
-    q_inj_max=800*1e3
 )
 
 # ALGORITHM
+sos2_with_binary = true
 
 ## 1. Build MINLP problem P
-P_minlp = get_minlp_problem(platform)
+P_minlp = get_minlp_problem(platform, sos2_with_binary)
 C_minlp = ∞  # following the minimization standard
 
 ### Start counting time after original problem is built
 start_time = time()
 
 ## 2. Build the MILP relaxation \tilde{P}
-P_relax = get_milp_relaxation(platform)
+P_relax = get_milp_relaxation(platform, sos2_with_binary)
 C_relax = ∞
 
 ## 3. Solve the MILP relaxation \tilde{P}, get solution and cost
@@ -60,7 +59,11 @@ global i = 0
 while (C_relax < C_minlp) & (time() - start_time < time_budget)
     @printf("| %5d | %15f | %15f | %14f%% | %9fs |\n", i, C_relax, C_minlp, 100*abs(C_minlp - C_relax) / abs(C_minlp), time()-start_time)
     # 4. Build P_fixed by constraining P to x_relax
-    fix_model!(P_minlp, vars_relax)
+    if sos2_with_binary
+        fix_model_with_binary!(P_minlp, vars_relax)
+    else
+        fix_model!(P_minlp, vars_relax)
+    end
     C_fixed = ∞
 
     # 5. Solve P_fixed, update x and C
@@ -76,7 +79,11 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     end
 
     # 6. Exclude x_relax from P_relax
-    exclude!(P_relax, vars_relax)
+    if sos2_with_binary
+        exclude_with_binary!(P_relax, vars_relax)
+    else
+        exclude!(P_relax, vars_relax)
+    end
 
     # Just for debugging purposes!
     # TODO: this is breaking because it tries to access the values of the variables after

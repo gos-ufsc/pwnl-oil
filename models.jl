@@ -6,15 +6,17 @@ const GRB_ENV = Gurobi.Env()
 M_Pressure = 1000.0  # Big-M
 
 # TODO: convert these functions into macros
-function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
+function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell, sos2_with_binary::Bool)
     # preprocess VLP curve for a piecewise formulation
     well = Oil.PiecewiseLinearWell(well, true)
 
     n = well.name
+    # println("Processing well: ", n)
 
     # Variables
 
     ## Flow rates
+    # println("Defining flow rate variables for well: ", n)
     q_liq_n = @variable(model, base_name="q_liq_$n", lower_bound = 0)
     q_water_n = @variable(model, base_name="q_water_$n", lower_bound = 0)
     q_oil_n = @variable(model, base_name="q_oil_$n", lower_bound = 0)
@@ -22,21 +24,25 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
     q_inj_n = @variable(model, base_name="q_inj_$n", lower_bound = 0)
 
     ## Pressures
+    # println("Defining pressure variables for well: ", n)
     whp_n = @variable(model, base_name="whp_$n", lower_bound = 0)  # wellhead
     bhp_n = @variable(model, base_name="bhp_$n", lower_bound = 0)  # bottomhole
     wfp_n = @variable(model, base_name="wfp_$n", lower_bound = 0)  # well-flowing
     dsp_n = @variable(model, base_name="dsp_$n", lower_bound = 0)  # downstream
 
     ## Parameters
+    # println("Defining parameter variables for well: ", n)
     iglr_n = @variable(model, base_name="iglr_$n", lower_bound = 0)  # injected-gas to liquid ratio
     wct_n = well.wct
     gor_n = well.gor
 
     ## Decisions
+    # println("Defining decision variables for well: ", n)
     y_n = @variable(model, base_name="y_$n", binary = true)        # (62h) well activation
     t_gl_n = @variable(model, base_name="t_gl_$n", binary = true)  # (62u) well lifting
 
     ## VLP curve variables
+    # println("Defining VLP curve variables for well: ", n)
     λ_vlp_n = @variable(
         model,
         [well.IGLR, well.WHP, well.Q_liq_vlp],
@@ -47,6 +53,12 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
     ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0, base_name="ξ_whp_$n")
     ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0, base_name="ξ_qliq_vlp_$n")
 
+    if sos2_with_binary
+        # println("Using binary variables for SOS2 formulation for well: ", n)
+        z_iglr_n = @variable(model, [1:(length(well.IGLR) - 1)], binary=true, base_name="z_iglr_$n")
+        z_whp_n = @variable(model, [1:(length(well.WHP) - 1)], binary=true, base_name="z_whp_$n")
+        z_qliq_n = @variable(model, [1:(length(well.Q_liq_vlp) - 1)], binary=true, base_name="z_qliq_vlp_$n")
+    end
     # Constraints
 
     ## VLP
@@ -119,14 +131,70 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
         for whp_bp in well.WHP
     ), base_name = "eta_q_liq_vlp_$n")
 
-    ### (62m)
-    @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+    if !sos2_with_binary
+        ### (62m)
+        @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+        ### (62n)
+        @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        ### (62o)
+        @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+    else
+        # println("z_iglr_n: ", collect(keys(z_iglr_n)))
+        # println("ξ_iglr_n: ", collect(keys(ξ_iglr_n)))
+        # println("Defining sum z = 1")
+        @constraint(model, sum(z_iglr_n[i] for i in 1:(length(well.IGLR) - 1)) == 1, base_name="active_interval_iglr_$n")
+        @constraint(model, sum(z_whp_n[i] for i in 1:(length(well.WHP) - 1)) == 1, base_name="active_interval_wph_$n")
+        @constraint(model, sum(z_qliq_n[i] for i in 1:(length(well.Q_liq_vlp) - 1)) == 1, base_name="active_interval_qliq_$n")
+        # println("Defining sum xi = 1")
+        # println("Keys for ξ_iglr_n: ", keys(ξ_iglr_n))
+        # Convex combination for ξ_iglr_n
+        @constraint(model, sum(ξ_iglr_n[key] for key in keys(ξ_iglr_n)) == 1, base_name="xi_convex_comb_iglr_$n")
+        @constraint(model, sum(ξ_whp_n[key] for key in keys(ξ_whp_n)) == 1, base_name="xi_convex_comb_whp_$n")
+        @constraint(model, sum(ξ_qliq_n[key] for key in keys(ξ_qliq_n)) == 1, base_name="xi_convex_comb_qliq_$n")
 
-    ### (62n)
-    @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        # println("Defining SOS2 constraints for binary formulation")
+        # println("z_iglr_n: ", collect(keys(z_iglr_n)))
+        # println("ξ_iglr_n: ", collect(keys(ξ_iglr_n)))
 
-    ### (62o)
-    @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+        # Constraints for IGLR
+        for (i, key_tuple) in enumerate(keys(ξ_iglr_n))
+            if i == 1
+                # println("Adding edge constraint for i=1, key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i], base_name="link_iglr_$(i)_$n")
+            elseif i == length(keys(ξ_iglr_n))
+                # println("Adding edge constraint for i=length(well.IGLR), key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i-1], base_name="link_iglr_$(i)_$n")
+            else
+                # println("Adding middle constraint for i=", i, ", key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i-1] + z_iglr_n[i], base_name="link_iglr_$(i)_$n")
+            end
+        end
+
+        # Constraints for WHP
+        for (i, key_tuple) in enumerate(keys(ξ_whp_n))
+            if i == 1
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i], base_name="link_whp_$(i)_$n")
+            elseif i == length(keys(ξ_whp_n))
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i-1], base_name="link_whp_$(i)_$n")
+            else
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i-1] + z_whp_n[i], base_name="link_whp_$(i)_$n")
+            end
+        end
+
+        # Constraints for Q_liq_vlp
+        for (i, key_tuple) in enumerate(keys(ξ_qliq_n))
+            if i == 1
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i], base_name="link_qliq_$(i)_$n")
+            elseif i == length(keys(ξ_qliq_n))
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i-1], base_name="link_qliq_$(i)_$n")
+            else
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i-1] + z_qliq_n[i], base_name="link_qliq_$(i)_$n")
+            end
+        end
+
+
+    end
+
 
     ### (62p)
     @constraint(model, q_oil_n == q_liq_n * (1 - wct_n), base_name = "ratio_q_oil_$n")
@@ -188,13 +256,13 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64, sos2_with_binary::Bool)
     N_man = names(manifold.wells)  # names of all wells in manifold
 
     m = manifold.name
 
     for well in manifold.wells
-        model = add_nonlinear_well(model, well)
+        model = add_nonlinear_well(model, well, sos2_with_binary)
     end
 
     manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
@@ -229,6 +297,12 @@ function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::
     ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
     ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
 
+    if sos2_with_binary
+        z_qliq_m = @variable(model, [1:(length(manifold.Q_liq) - 1)], binary=true, base_name="z_qliq_$m")
+        z_gor_m = @variable(model, [1:(length(manifold.GOR) - 1)], binary=true, base_name="z_gor_$m")
+        z_wct_m = @variable(model, [1:(length(manifold.WCT) - 1)], binary=true, base_name="z_wct_$m")
+        z_iglr_m = @variable(model, [1:(length(manifold.IGLR) - 1)], binary=true, base_name="z_iglr_$m")
+    end
     # Constraints
 
     ## Manifold input
@@ -327,10 +401,67 @@ function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::
         for gor_bp in manifold.GOR
         for wct_bp in manifold.WCT
     ), base_name="eta_iglr_riser_$m")
-    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
-    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
-    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
-    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+
+    if !sos2_with_binary
+        @constraint(model, ξ_qliq_m in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+        @constraint(model, ξ_gor_m in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+        @constraint(model, ξ_wct_m in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+        @constraint(model, ξ_iglr_m in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+    else
+        # Active intervals for binary variables
+        @constraint(model, sum(z_qliq_m[i] for i in 1:(length(manifold.Q_liq) - 1)) == 1, base_name="active_interval_qliq_$m")
+        @constraint(model, sum(z_gor_m[i] for i in 1:(length(manifold.GOR) - 1)) == 1, base_name="active_interval_gor_$m")
+        @constraint(model, sum(z_wct_m[i] for i in 1:(length(manifold.WCT) - 1)) == 1, base_name="active_interval_wct_$m")
+        @constraint(model, sum(z_iglr_m[i] for i in 1:(length(manifold.IGLR) - 1)) == 1, base_name="active_interval_iglr_$m")
+    
+        # Convex combinations
+        @constraint(model, sum(ξ_qliq_m[key_tuple] for key_tuple in keys(ξ_qliq_m)) == 1, base_name="xi_convex_comb_qliq_$m")
+        @constraint(model, sum(ξ_gor_m[key_tuple] for key_tuple in keys(ξ_gor_m)) == 1, base_name="xi_convex_comb_gor_$m")
+        @constraint(model, sum(ξ_wct_m[key_tuple] for key_tuple in keys(ξ_wct_m)) == 1, base_name="xi_convex_comb_wct_$m")
+        @constraint(model, sum(ξ_iglr_m[key_tuple] for key_tuple in keys(ξ_iglr_m)) == 1, base_name="xi_convex_comb_iglr_$m")
+    
+        # Linking constraints
+        for (i, key_tuple) in enumerate(keys(ξ_qliq_m))
+            if i == 1
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i], base_name="link_qliq_$(i)_$m")
+            elseif i == length(keys(ξ_qliq_m))
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i-1], base_name="link_qliq_$(i)_$m")
+            else
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i-1] + z_qliq_m[i], base_name="link_qliq_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_gor_m))
+            if i == 1
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i], base_name="link_gor_$(i)_$m")
+            elseif i == length(keys(ξ_gor_m))
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i-1], base_name="link_gor_$(i)_$m")
+            else
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i-1] + z_gor_m[i], base_name="link_gor_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_wct_m))
+            if i == 1
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i], base_name="link_wct_$(i)_$m")
+            elseif i == length(keys(ξ_wct_m))
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i-1], base_name="link_wct_$(i)_$m")
+            else
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i-1] + z_wct_m[i], base_name="link_wct_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_iglr_m))
+            if i == 1
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i], base_name="link_iglr_$(i)_$m")
+            elseif i == length(keys(ξ_iglr_m))
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i-1], base_name="link_iglr_$(i)_$m")
+            else
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i-1] + z_iglr_m[i], base_name="link_iglr_$(i)_$m")
+            end
+        end
+    end
+    
 
     ## Multilinear Interpolation
 
@@ -449,7 +580,7 @@ function add_platform(model::GenericModel, platform::Platform)
     return model
 end
 
-function get_minlp_problem(platform::Platform)
+function get_minlp_problem(platform::Platform, sos2_with_binary::Bool)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
@@ -457,13 +588,13 @@ function get_minlp_problem(platform::Platform)
 
     # Wells
     for well in platform.satellite_wells
-        model = add_nonlinear_well(model, well)
+        model = add_nonlinear_well(model, well, sos2_with_binary)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
-        model = add_nonlinear_manifold(model, manifold, platform.p_sep)  # (65)
+        model = add_nonlinear_manifold(model, manifold, platform.p_sep, sos2_with_binary)  # (65)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
@@ -476,7 +607,7 @@ function get_minlp_problem(platform::Platform)
     return model
 end
 
-function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
+function add_linear_well(model::GenericModel, well::Oil.AbstractWell, sos2_with_binary::Bool)
     # preprocess VLP curve for a piecewise formulation
     well = Oil.PiecewiseLinearWell(well, true)
 
@@ -517,6 +648,11 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
     ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0, base_name="ξ_whp_$n")
     ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0, base_name="ξ_qliq_vlp_$n")
 
+    if sos2_with_binary
+        z_iglr_n = @variable(model, [1:(length(well.IGLR) - 1)], binary=true, base_name="z_iglr_$n")
+        z_whp_n = @variable(model, [1:(length(well.WHP) - 1)], binary=true, base_name="z_whp_$n")
+        z_qliq_n = @variable(model, [1:(length(well.Q_liq_vlp) - 1)], binary=true, base_name="z_qliq_vlp_$n")
+    end
     # Constraints
 
     ## VLP
@@ -594,14 +730,67 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
         for whp_bp in well.WHP
     ), base_name = "eta_q_liq_vlp_$n")
 
-    ### (62m)
-    @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+    if !sos2_with_binary
+        ### (62m)
+        @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+        ### (62n)
+        @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        ### (62o)
+        @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+    else
+        # println("z_iglr_n: ", collect(keys(z_iglr_n)))
+        # println("ξ_iglr_n: ", collect(keys(ξ_iglr_n)))
+        # println("Defining sum z = 1")
+        @constraint(model, sum(z_iglr_n[i] for i in 1:(length(well.IGLR) - 1)) == 1, base_name="active_interval_iglr_$n")
+        @constraint(model, sum(z_whp_n[i] for i in 1:(length(well.WHP) - 1)) == 1, base_name="active_interval_wph_$n")
+        @constraint(model, sum(z_qliq_n[i] for i in 1:(length(well.Q_liq_vlp) - 1)) == 1, base_name="active_interval_qliq_$n")
+        # println("Defining sum xi = 1")
+        # println("Keys for ξ_iglr_n: ", keys(ξ_iglr_n))
+        # Convex combination for ξ_iglr_n
+        @constraint(model, sum(ξ_iglr_n[key] for key in keys(ξ_iglr_n)) == 1, base_name="xi_convex_comb_iglr_$n")
+        @constraint(model, sum(ξ_whp_n[key] for key in keys(ξ_whp_n)) == 1, base_name="xi_convex_comb_whp_$n")
+        @constraint(model, sum(ξ_qliq_n[key] for key in keys(ξ_qliq_n)) == 1, base_name="xi_convex_comb_qliq_$n")
 
-    ### (62n)
-    @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        # println("Defining SOS2 constraints for binary formulation")
+        # println("z_iglr_n: ", collect(keys(z_iglr_n)))
+        # println("ξ_iglr_n: ", collect(keys(ξ_iglr_n)))
 
-    ### (62o)
-    @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+        # Constraints for IGLR
+        for (i, key_tuple) in enumerate(keys(ξ_iglr_n))
+            if i == 1
+                # println("Adding edge constraint for i=1, key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i], base_name="link_iglr_$(i)_$n")
+            elseif i == length(keys(ξ_iglr_n))
+                # println("Adding edge constraint for i=length(well.IGLR), key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i-1], base_name="link_iglr_$(i)_$n")
+            else
+                # println("Adding middle constraint for i=", i, ", key=", key_tuple[1])
+                @constraint(model, ξ_iglr_n[key_tuple] <= z_iglr_n[i-1] + z_iglr_n[i], base_name="link_iglr_$(i)_$n")
+            end
+        end
+
+        # Constraints for WHP
+        for (i, key_tuple) in enumerate(keys(ξ_whp_n))
+            if i == 1
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i], base_name="link_whp_$(i)_$n")
+            elseif i == length(keys(ξ_whp_n))
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i-1], base_name="link_whp_$(i)_$n")
+            else
+                @constraint(model, ξ_whp_n[key_tuple] <= z_whp_n[i-1] + z_whp_n[i], base_name="link_whp_$(i)_$n")
+            end
+        end
+
+        # Constraints for Q_liq_vlp
+        for (i, key_tuple) in enumerate(keys(ξ_qliq_n))
+            if i == 1
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i], base_name="link_qliq_$(i)_$n")
+            elseif i == length(keys(ξ_qliq_n))
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i-1], base_name="link_qliq_$(i)_$n")
+            else
+                @constraint(model, ξ_qliq_n[key_tuple] <= z_qliq_n[i-1] + z_qliq_n[i], base_name="link_qliq_$(i)_$n")
+            end
+        end
+    end
 
     ### (62p)
     @constraint(model, q_oil_n == q_liq_n * (1 - wct_n), base_name = "ratio_q_oil_$n")
@@ -650,13 +839,13 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64, sos2_with_binary::Bool)
     N_man = names(manifold.wells)  # names of all wells in manifold
 
     m = manifold.name
 
     for well in manifold.wells
-        model = add_linear_well(model, well)
+        model = add_linear_well(model, well, sos2_with_binary)
     end
 
     manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
@@ -691,6 +880,12 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
     ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
     ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
 
+    if sos2_with_binary
+        z_qliq_m = @variable(model, [1:(length(manifold.Q_liq) - 1)], binary=true, base_name="z_qliq_$m")
+        z_gor_m = @variable(model, [1:(length(manifold.GOR) - 1)], binary=true, base_name="z_gor_$m")
+        z_wct_m = @variable(model, [1:(length(manifold.WCT) - 1)], binary=true, base_name="z_wct_$m")
+        z_iglr_m = @variable(model, [1:(length(manifold.IGLR) - 1)], binary=true, base_name="z_iglr_$m")
+    end
     # Constraints
 
     ## Manifold input
@@ -815,11 +1010,67 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
         for gor_bp in manifold.GOR
         for wct_bp in manifold.WCT
     ), base_name="eta_iglr_riser_$m")
-    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
-    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
-    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
-    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
 
+    if !sos2_with_binary
+        @constraint(model, ξ_qliq_m in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+        @constraint(model, ξ_gor_m in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+        @constraint(model, ξ_wct_m in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+        @constraint(model, ξ_iglr_m in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+    else
+        # Active intervals for binary variables
+        @constraint(model, sum(z_qliq_m[i] for i in 1:(length(manifold.Q_liq) - 1)) == 1, base_name="active_interval_qliq_$m")
+        @constraint(model, sum(z_gor_m[i] for i in 1:(length(manifold.GOR) - 1)) == 1, base_name="active_interval_gor_$m")
+        @constraint(model, sum(z_wct_m[i] for i in 1:(length(manifold.WCT) - 1)) == 1, base_name="active_interval_wct_$m")
+        @constraint(model, sum(z_iglr_m[i] for i in 1:(length(manifold.IGLR) - 1)) == 1, base_name="active_interval_iglr_$m")
+    
+        # Convex combinations
+        @constraint(model, sum(ξ_qliq_m[key_tuple] for key_tuple in keys(ξ_qliq_m)) == 1, base_name="xi_convex_comb_qliq_$m")
+        @constraint(model, sum(ξ_gor_m[key_tuple] for key_tuple in keys(ξ_gor_m)) == 1, base_name="xi_convex_comb_gor_$m")
+        @constraint(model, sum(ξ_wct_m[key_tuple] for key_tuple in keys(ξ_wct_m)) == 1, base_name="xi_convex_comb_wct_$m")
+        @constraint(model, sum(ξ_iglr_m[key_tuple] for key_tuple in keys(ξ_iglr_m)) == 1, base_name="xi_convex_comb_iglr_$m")
+    
+        # Linking constraints
+        for (i, key_tuple) in enumerate(keys(ξ_qliq_m))
+            if i == 1
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i], base_name="link_qliq_$(i)_$m")
+            elseif i == length(keys(ξ_qliq_m))
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i-1], base_name="link_qliq_$(i)_$m")
+            else
+                @constraint(model, ξ_qliq_m[key_tuple] <= z_qliq_m[i-1] + z_qliq_m[i], base_name="link_qliq_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_gor_m))
+            if i == 1
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i], base_name="link_gor_$(i)_$m")
+            elseif i == length(keys(ξ_gor_m))
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i-1], base_name="link_gor_$(i)_$m")
+            else
+                @constraint(model, ξ_gor_m[key_tuple] <= z_gor_m[i-1] + z_gor_m[i], base_name="link_gor_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_wct_m))
+            if i == 1
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i], base_name="link_wct_$(i)_$m")
+            elseif i == length(keys(ξ_wct_m))
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i-1], base_name="link_wct_$(i)_$m")
+            else
+                @constraint(model, ξ_wct_m[key_tuple] <= z_wct_m[i-1] + z_wct_m[i], base_name="link_wct_$(i)_$m")
+            end
+        end
+    
+        for (i, key_tuple) in enumerate(keys(ξ_iglr_m))
+            if i == 1
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i], base_name="link_iglr_$(i)_$m")
+            elseif i == length(keys(ξ_iglr_m))
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i-1], base_name="link_iglr_$(i)_$m")
+            else
+                @constraint(model, ξ_iglr_m[key_tuple] <= z_iglr_m[i-1] + z_iglr_m[i], base_name="link_iglr_$(i)_$m")
+            end
+        end
+    end
+    
     ## Infeasible points
     for q_liq_bp in manifold.Q_liq
         for gor_bp in manifold.GOR
@@ -840,7 +1091,7 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
     return model
 end
 
-function get_milp_relaxation(platform::Platform)
+function get_milp_relaxation(platform::Platform, sos2_with_binary::Bool)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
@@ -848,13 +1099,13 @@ function get_milp_relaxation(platform::Platform)
 
     # Wells
     for well in platform.satellite_wells
-        model = add_linear_well(model, well)
+        model = add_linear_well(model, well, sos2_with_binary)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
-        model = add_linear_manifold(model, manifold, platform.p_sep)
+        model = add_linear_manifold(model, manifold, platform.p_sep, sos2_with_binary)
         q_oil_total = q_oil_total + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
