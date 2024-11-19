@@ -80,32 +80,9 @@ function get_vlp_fixing_values(vars::Vector{VariableRef}, name::String, dimensio
     fixing_values = Dict{String, Int64}()
 
     for x in dimensions
-        ξ = [v for v in vars if startswith(string(v), "ξ_$(x)_$(name)")]
-        bps = [parse(Float64, match(r"\[([0-9.]+)\]$", string(ξ_i))[1]) for ξ_i in ξ]
-
-        # sort according to breakpoints
-        sort_ix = sortperm(bps)
-        ξ = ξ[sort_ix]
-        bps = bps[sort_ix]
-
-        # filter breakpoints NOT to fix (considering solver tolerance)
-        ξ_not_to_fix = ξ[abs.(value.(ξ)) .> int_tol]
-        if length(ξ_not_to_fix) == 1
-            bp_not_to_fix = only(bps[value.(ξ) .> int_tol])
-
-            if bp_not_to_fix == bps[1]
-                # add to not-to-fix the breakpoint right after the one in `model1` solution
-                push!(ξ_not_to_fix, first(ξ[bps .> bp_not_to_fix]))
-            else
-                # add to not-to-fix the breakpoint just before the one in `model1` solution
-                push!(ξ_not_to_fix, last(ξ[bps .< bp_not_to_fix]))
-            end
-
-            @assert length(ξ_not_to_fix) == 2
-        end
-
-        for ξ_i in setdiff(ξ, ξ_not_to_fix)
-            fixing_values[string(ξ_i)] = 0
+        z = [v for v in vars if startswith(string(v), "z_$(x)_$(name)")]
+        for z_i in z
+            fixing_values[string(z_i)] = round(value(z_i))
         end
     end
 
@@ -149,6 +126,7 @@ function fix_model!(P::GenericModel, fixing_values::Dict{String, Int64})
         if is_fixed(v)
             unfix(v)
 
+            # TODO: this is not necessary anymore
             if startswith(name(v), "ξ")
                 set_lower_bound(v, 0.0)
             end
@@ -175,7 +153,7 @@ function exclude!(P::GenericModel, fixing_values::Dict{String, Int64}; int_tol=1
         end
     end
 
-    @constraint(P, constraint_lhs >= 1e-2)
+    @constraint(P, constraint_lhs >= 1 - int_tol)
 end
 
 function check_points_is_feasible(P, vars)

@@ -4,7 +4,13 @@ include("models.jl")
 include("utils.jl")
 
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
-time_budget = 60.0 * 5  # 5 minutes budget
+time_budget = 60.0 * 15  # 15 minutes budget
+
+
+## Profiling
+time_milp_solver = 0
+time_nlp_solver = 0
+time_model_manipulation = 0
 
 # SCENARIO 3
 platform = Platform(
@@ -40,23 +46,26 @@ platform = Platform(
 # ALGORITHM
 
 ## 1. Build MINLP problem P
-P_minlp = get_minlp_problem(platform)
+P_minlp = get_minlp_problem(platform, sos2_with_binary = true)
 C_minlp = ∞  # following the minimization standard
 
 ### Start counting time after original problem is built
 start_time = time()
 
 ## 2. Build the MILP relaxation \tilde{P}
-P_relax = get_milp_relaxation(platform)
+P_relax = get_milp_relaxation(platform, sos2_with_binary = true)
 C_relax = ∞
 
 ## 3. Solve the MILP relaxation \tilde{P}, get solution and cost
+t = time()
 C_relax, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - start_time))
+time_milp_solver += time() - t
 
 @printf("| %-5s | %-15s | %-15s | %-15s | %-10s |\n", "It.", "Lower Bound", "Upper Bound", "Gap", "Time")
 
 global i = 0
 while (C_relax < C_minlp) & (time() - start_time < time_budget)
+    t = time()
     # fixing values dictate the region which we are going to explore in this iteration
     fixing_values = get_fixing_values(vars_relax, platform)
 
@@ -72,9 +81,12 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     else
         set_normalized_rhs(valid_ineq, C_relax)
     end
+    global time_model_manipulation += time() - t
 
     # 5. Solve P_fixed, update x and C
+    t = time()
     C_fixed, vars_fixed = nlp_solver(P_minlp, time_limit = time_budget - (time() - start_time))
+    global time_nlp_solver += time() - t
 
     if C_fixed < C_minlp
         global C_minlp = C_fixed;
@@ -86,6 +98,7 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     end
 
     # 6. Exclude x_relax from P_relax
+    t = time()
     exclude!(P_relax, fixing_values)
 
     # Just for debugging purposes!
@@ -100,9 +113,12 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     else
         set_normalized_rhs(valid_ineq, C_relax)
     end
+    global time_model_manipulation += time() - t
 
     # 7. Solve P_relax, get solution x_relax and C_relax
+    t = time()
     global C_relax, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - start_time))
+    global time_milp_solver += time() - t
 
     global i += 1
 end
@@ -131,3 +147,7 @@ else
 end
 println("Gap: ", gap)
 println("Runtime: ", final_time)
+
+println("\nTime spent in MILP solver: ", time_milp_solver)
+println("Time spent in NLP solver: ", time_nlp_solver)
+println("Time spent in model manipulation: ", time_model_manipulation)
