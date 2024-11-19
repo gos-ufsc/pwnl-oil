@@ -5,8 +5,32 @@ const GRB_ENV = Gurobi.Env()
 
 M_Pressure = 1000.0  # Big-M
 
+
+function add_custom_SOS2_constraint(model::GenericModel, ξ; name = "sos2")
+    z = @variable(model, [1:length(ξ)-1], Bin, base_name="z_$name")
+
+    @constraint(model, sum(z) == 1, base_name="single_interval_$name")
+    @constraint(model, sum(ξ) == 1, base_name="convex_combination_ξ_$name")
+
+    # Constraints for IGLR
+    for (i, key_tuple) in enumerate(keys(ξ))
+        if i == 1
+            # Edge constraint for first value
+            @constraint(model, ξ[key_tuple] <= z[i], base_name="link_ξ_$(i)_$name")
+        elseif i == length(keys(ξ))
+            # Edge constraint for last value
+            @constraint(model, ξ[key_tuple] <= z[i-1], base_name="link_ξ_$(i)_$name")
+        else
+            # Middle constraint for intermediate values
+            @constraint(model, ξ[key_tuple] <= z[i-1] + z[i], base_name="link_ξ_$(i)_$name")
+        end
+    end
+
+    return z
+end
+
 # TODO: convert these functions into macros
-function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
+function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell; sos2_with_binary = false)
     # preprocess VLP curve for a piecewise formulation
     well = Oil.PiecewiseLinearWell(well, true)
 
@@ -119,14 +143,25 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
         for whp_bp in well.WHP
     ), base_name = "eta_q_liq_vlp_$n")
 
-    ### (62m)
-    @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+    if !sos2_with_binary
+        ### (62m)
+        @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
 
-    ### (62n)
-    @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        ### (62n)
+        @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
 
-    ### (62o)
-    @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+        ### (62o)
+        @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+    else
+        ### (62m)
+        z_iglr_n = add_custom_SOS2_constraint(model, ξ_iglr_n, name="iglr_$n")
+
+        ### (62n)
+        z_whp_n = add_custom_SOS2_constraint(model, ξ_whp_n, name="whp_$n")
+
+        ### (62o)
+        z_qliq_n = add_custom_SOS2_constraint(model, ξ_qliq_n, name="qliq_$n")
+    end
 
     ### (62p)
     @constraint(model, q_oil_n == q_liq_n * (1 - wct_n), base_name = "ratio_q_oil_$n")
@@ -188,13 +223,13 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64; sos2_with_binary = false)
     N_man = names(manifold.wells)  # names of all wells in manifold
 
     m = manifold.name
 
     for well in manifold.wells
-        model = add_nonlinear_well(model, well)
+        model = add_nonlinear_well(model, well, sos2_with_binary = sos2_with_binary)
     end
 
     manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
@@ -327,10 +362,18 @@ function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::
         for gor_bp in manifold.GOR
         for wct_bp in manifold.WCT
     ), base_name="eta_iglr_riser_$m")
-    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
-    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
-    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
-    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+
+    if !sos2_with_binary
+        @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+        @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+        @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+        @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+    else
+        z_qliq_m = add_custom_SOS2_constraint(model, ξ_qliq_m, name="qliq_$m")
+        z_gor_m = add_custom_SOS2_constraint(model, ξ_gor_m, name="gor_$m")
+        z_wct_m = add_custom_SOS2_constraint(model, ξ_wct_m, name="wct_$m")
+        z_iglr_m = add_custom_SOS2_constraint(model, ξ_iglr_m, name="iglr_$m")
+    end
 
     ## Multilinear Interpolation
 
@@ -449,7 +492,7 @@ function add_platform(model::GenericModel, platform::Platform)
     return model
 end
 
-function get_minlp_problem(platform::Platform)
+function get_minlp_problem(platform::Platform; sos2_with_binary = false)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
@@ -458,13 +501,13 @@ function get_minlp_problem(platform::Platform)
 
     # Wells
     for well in platform.satellite_wells
-        model = add_nonlinear_well(model, well)
+        model = add_nonlinear_well(model, well, sos2_with_binary = sos2_with_binary)
         q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
-        model = add_nonlinear_manifold(model, manifold, platform.p_sep)  # (65)
+        model = add_nonlinear_manifold(model, manifold, platform.p_sep, sos2_with_binary = sos2_with_binary)  # (65)
         q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
@@ -478,7 +521,7 @@ function get_minlp_problem(platform::Platform)
     return model
 end
 
-function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
+function add_linear_well(model::GenericModel, well::Oil.AbstractWell; sos2_with_binary = false)
     # preprocess VLP curve for a piecewise formulation
     well = Oil.PiecewiseLinearWell(well, true)
 
@@ -596,14 +639,25 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
         for whp_bp in well.WHP
     ), base_name = "eta_q_liq_vlp_$n")
 
-    ### (62m)
-    @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
+    if !sos2_with_binary
+        ### (62m)
+        @constraint(model, ξ_iglr_n[well.IGLR] in SOS2(well.IGLR), base_name = "sos2_iglr_$n")
 
-    ### (62n)
-    @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
+        ### (62n)
+        @constraint(model, ξ_whp_n[well.WHP] in SOS2(well.WHP), base_name = "sos2_whp_$n")
 
-    ### (62o)
-    @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+        ### (62o)
+        @constraint(model, ξ_qliq_n[well.Q_liq_vlp] in SOS2(well.Q_liq_vlp), base_name = "sos2_qliq_vlp_$n")
+    else
+        ### (62m)
+        z_iglr_n = add_custom_SOS2_constraint(model, ξ_iglr_n, name="iglr_$n")
+
+        ### (62n)
+        z_whp_n = add_custom_SOS2_constraint(model, ξ_whp_n, name="whp_$n")
+
+        ### (62o)
+        z_qliq_n = add_custom_SOS2_constraint(model, ξ_qliq_n, name="qliq_$n")
+    end
 
     ### (62p)
     @constraint(model, q_oil_n == q_liq_n * (1 - wct_n), base_name = "ratio_q_oil_$n")
@@ -652,13 +706,13 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell)
     return model
 end
 
-function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64)
+function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Float64; sos2_with_binary = false)
     N_man = names(manifold.wells)  # names of all wells in manifold
 
     m = manifold.name
 
     for well in manifold.wells
-        model = add_linear_well(model, well)
+        model = add_linear_well(model, well, sos2_with_binary = sos2_with_binary)
     end
 
     manifold = Oil.PiecewiseLinearManifold(manifold, p_sep)
@@ -817,10 +871,18 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
         for gor_bp in manifold.GOR
         for wct_bp in manifold.WCT
     ), base_name="eta_iglr_riser_$m")
-    @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
-    @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
-    @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
-    @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+
+    if !sos2_with_binary
+        @constraint(model, ξ_qliq_m[manifold.Q_liq] in SOS2(manifold.Q_liq), base_name="sos2_qliq_riser_$m")
+        @constraint(model, ξ_gor_m[manifold.GOR] in SOS2(manifold.GOR), base_name="sos2_gor_riser_$m")
+        @constraint(model, ξ_wct_m[manifold.WCT] in SOS2(manifold.WCT), base_name="sos2_wct_riser_$m")
+        @constraint(model, ξ_iglr_m[manifold.IGLR] in SOS2(manifold.IGLR), base_name="sos2_iglr_riser_$m")
+    else
+        z_qliq_m = add_custom_SOS2_constraint(model, ξ_qliq_m, name="qliq_$m")
+        z_gor_m = add_custom_SOS2_constraint(model, ξ_gor_m, name="gor_$m")
+        z_wct_m = add_custom_SOS2_constraint(model, ξ_wct_m, name="wct_$m")
+        z_iglr_m = add_custom_SOS2_constraint(model, ξ_iglr_m, name="iglr_$m")
+    end
 
     ## Infeasible points
     for q_liq_bp in manifold.Q_liq
@@ -842,7 +904,7 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
     return model
 end
 
-function get_milp_relaxation(platform::Platform)
+function get_milp_relaxation(platform::Platform; sos2_with_binary = false)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
 
     # Objective
@@ -851,13 +913,13 @@ function get_milp_relaxation(platform::Platform)
 
     # Wells
     for well in platform.satellite_wells
-        model = add_linear_well(model, well)
+        model = add_linear_well(model, well, sos2_with_binary = sos2_with_binary)
         q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(well.name)")
     end
 
     # Manifolds
     for manifold in platform.manifolds
-        model = add_linear_manifold(model, manifold, platform.p_sep)
+        model = add_linear_manifold(model, manifold, platform.p_sep, sos2_with_binary = sos2_with_binary)
         q_oil_total_expr = q_oil_total_expr + variable_by_name(model, "q_oil_$(manifold.name)")
     end
 
