@@ -1,4 +1,4 @@
-using Gurobi, JuMP, Printf
+using Gurobi, JuMP, Printf, Oil
 
 const ∞ = Inf
 
@@ -93,7 +93,7 @@ function get_fixing_values(vars::Vector{VariableRef}, platform::Platform; int_to
     fixing_values = Dict{String, Int64}()
 
     # Get well variables
-    for well in all_wells(platform)
+    for well in Oil.all_wells(platform)
         # strategic decisions
         y_value = first(value(v) for v in vars if name(v) == "y_$(well.name)")
         fixing_values["y_$(well.name)"] = round(y_value)

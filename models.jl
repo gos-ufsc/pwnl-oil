@@ -454,6 +454,17 @@ function add_platform(model::GenericModel, platform::Platform)
         )
     end
 
+    q_liq_plat = @variable(model, base_name="q_liq_plat", lower_bound = 0)
+    q_wat_plat = @variable(model, base_name="q_wat_plat", lower_bound = 0)
+    q_oil_plat = @variable(model, base_name="q_oil_plat", lower_bound = 0)
+    q_inj_plat = @variable(model, base_name="q_inj_plat", lower_bound = 0)
+    
+    @constraint(model, q_liq_plat == sum(variable_by_name(model, "q_liq_$n") for n in N))
+    @constraint(model, q_wat_plat == sum(variable_by_name(model, "q_water_$n") for n in N))
+    @constraint(model, q_oil_plat == sum(variable_by_name(model, "q_oil_$n") for n in N))
+    @constraint(model, q_inj_plat == sum(variable_by_name(model, "q_inj_$n") for n in N))
+
+
     ### (64d)/(66f)
     if ~isnothing(platform.q_inj_max)
         @constraint(
