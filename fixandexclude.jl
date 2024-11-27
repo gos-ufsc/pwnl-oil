@@ -4,7 +4,7 @@ include("models.jl")
 include("utils.jl")
 
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
-time_budget = 60.0 * 15  # 15 minutes budget
+time_budget = 60.0 * 3  # 3 minutes budget
 
 
 ## Profiling
@@ -86,8 +86,21 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
         break
     end
 
+    # Get best solution from previous P_relax that respects the fixing values
+    warm_start_names = []
+    warm_start_values = []
+    for j = 1:result_count(P_relax)
+        diff = 0
+        for (v_name, v_value) in fixing_values
+            diff += abs(v_value - value.(variable_by_name(P_relax, v_name), result = j))
+        end
+        if diff > 0
+            warm_start = [(name(v), value(v, result = j)) for v in all_variables(P_relax)]
+            break
+        end
+    end
+
     # 6. Exclude x_relax from P_relax
-    t = time()
     exclude!(P_relax, fixing_values)
 
     # Just for debugging purposes!
@@ -104,10 +117,19 @@ while (C_relax < C_minlp) & (time() - start_time < time_budget)
     end
     global time_model_manipulation += time() - t
 
+    # add warm-start feasible solution
+    for (v_name, v_value) in warm_start
+        set_start_value(variable_by_name(P_relax, v_name), v_value)
+    end
+
     # 7. Solve P_relax, get solution x_relax and C_relax
     t = time()
-    global C_relax, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - start_time))
+    global C_relax_new, vars_relax = milp_solver(P_relax, time_limit = time_budget - (time() - start_time))
     global time_milp_solver += time() - t
+
+    if is_solved_and_feasible(P_relax)  # this is not the case if the time limit is reached
+        C_relax = C_relax_new
+    end
 
     global i += 1
 end
