@@ -6,11 +6,53 @@ const GRB_ENV = Gurobi.Env()
 M_Pressure = 1000.0  # Big-M
 
 
+# function add_custom_SOS2_constraint(model::GenericModel, ξ; name = "sos2")
+#     z = @variable(model, [1:length(ξ)-1], Bin, base_name="z_$name")
+
+#     @constraint(model, sum(z) == 1, base_name="single_interval_$name")
+#     @constraint(model, sum(ξ) == 1, base_name="convex_combination_ξ_$name")
+
+#     # Constraints for IGLR
+#     for (i, key_tuple) in enumerate(keys(ξ))
+#         if i == 1
+#             # Edge constraint for first value
+#             @constraint(model, ξ[key_tuple] <= z[i], base_name="link_ξ_$(i)_$name")
+#         elseif i == length(keys(ξ))
+#             # Edge constraint for last value
+#             @constraint(model, ξ[key_tuple] <= z[i-1], base_name="link_ξ_$(i)_$name")
+#         else
+#             # Middle constraint for intermediate values
+#             @constraint(model, ξ[key_tuple] <= z[i-1] + z[i], base_name="link_ξ_$(i)_$name")
+#         end
+#     end
+
+#     return z
+# end
+
 function add_custom_SOS2_constraint(model::GenericModel, ξ; name = "sos2")
+    # Extract the part of the name after the last '_'
+    # println("Name: " * name)
+    if occursin(r"_", name)
+        parts = split(name, "_")
+        identifier = join(parts[2:end], "_")  # Join all parts EXCEPT the first one
+    else
+        error("The 'name' argument must contain an underscore followed by an identifier (e.g., 'sos2_n', 'sos2_m')")
+    end
+    # println("Identifier: " * identifier)
+
+    # Retrieve the y variable dynamically based on the identifier
+    y_name = "y_$identifier"  # Variable name as "y_<identifier>"
+    y_var = variable_by_name(model, y_name)
+    if isnothing(y_var)
+        error("Variable $y_name not found in the model.")
+    end
+
+    # Create z variable
     z = @variable(model, [1:length(ξ)-1], Bin, base_name="z_$name")
 
-    @constraint(model, sum(z) == 1, base_name="single_interval_$name")
-    @constraint(model, sum(ξ) == 1, base_name="convex_combination_ξ_$name")
+    # Set constraints
+    @constraint(model, sum(z) == y_var, base_name="single_interval_$name")
+    @constraint(model, sum(ξ) == y_var, base_name="convex_combination_ξ_$name")
 
     # Constraints for IGLR
     for (i, key_tuple) in enumerate(keys(ξ))
@@ -26,8 +68,9 @@ function add_custom_SOS2_constraint(model::GenericModel, ξ; name = "sos2")
         end
     end
 
-    return z
+    return z, y_var, identifier  # Return z, y, and the extracted identifier
 end
+
 
 # TODO: convert these functions into macros
 function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell; sos2_with_binary = false)
@@ -36,6 +79,7 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell; sos2_wi
 
     n = well.name
 
+    # println("Creating well:"* n)
     # Variables
 
     ## Flow rates
