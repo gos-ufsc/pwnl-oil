@@ -106,12 +106,12 @@ end
 
 function generate_all_scenarios(;
     scenarios=[
-        (id=1, n_sat=1, n_man=0, wells_per_man=1),
-        # (id=2, n_sat=2, n_man=1, wells_per_man=3),
-        # (id=3, n_sat=3, n_man=1, wells_per_man=3),
-        # (id=4, n_sat=3, n_man=2, wells_per_man=2),
-        # (id=5, n_sat=2, n_man=2, wells_per_man=3),
-        # (id=6, n_sat=3, n_man=2, wells_per_man=3),
+        (id=1, n_sat=2, n_man=1, wells_per_man=2),
+        (id=2, n_sat=2, n_man=1, wells_per_man=3),
+        (id=3, n_sat=3, n_man=1, wells_per_man=3),
+        (id=4, n_sat=3, n_man=2, wells_per_man=2),
+        (id=5, n_sat=2, n_man=2, wells_per_man=3),
+        (id=6, n_sat=3, n_man=2, wells_per_man=3),
     ],
     instances_per_scenario=8,
     param_ranges=Dict(
