@@ -197,3 +197,45 @@ function check_points_is_feasible(P, vars)
         return false
     end
 end
+
+function fix_model!(P::GenericModel, fixing_values::Dict{String, Int64})
+    # unfix ξ variables
+    for v in all_variables(P)
+        if is_fixed(v)
+            unfix(v)
+
+            # TODO: this is not necessary anymore
+            # if startswith(name(v), "ξ")
+            #     set_lower_bound(v, 0.0)
+            # end
+        end
+    end
+
+    # fix variables
+    for (var_name, value) in fixing_values
+        var = variable_by_name(P, var_name)
+        fix(var, value, force=true)
+    end
+end
+
+function exclude!(P::GenericModel, fixing_values::Dict{String, Int64}; int_tol=1e-6)
+    constraint_lhs = 0
+    # println("Fixing_values; ", fixing_values)
+    for (var_name, value) in fixing_values
+        var = variable_by_name(P, var_name)
+
+        if startswith(var_name, "y")
+            constraint_lhs += value * (1 - var) + (1 - value) * var
+        end
+
+        if startswith(var_name, "t_gl")
+            constraint_lhs += value * (1 - var) + (1 - value) * var
+        end
+
+        if startswith(var_name, "z")
+            constraint_lhs += value * (1 - var) + (1 - value) * var
+        end
+    end
+
+    @constraint(P, constraint_lhs >= 1)
+end

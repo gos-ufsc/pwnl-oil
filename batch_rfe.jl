@@ -1,9 +1,10 @@
-using CSV, DataFrames, SCIP
+using CSV, DataFrames
 using JSON3
 using Oil
 using JuMP
 include("models.jl")
 include("utils.jl")
+include("rfe_utils.jl")
 
 const GRB_ENV = Gurobi.Env()
 
