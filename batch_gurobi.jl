@@ -51,7 +51,18 @@ end
 
 function solve_and_store(platform, scenario_id, instance_id; 
                          results_dir="results", time_budget=30.0, sos2_with_binaries=false)
-    global uppers, lowers, times
+    # (re)set global variables of the callbacks
+    global times = Vector{Float64}()
+    global uppers = Vector{Float64}()
+    global lowers = Vector{Float64}()
+
+    push!(times, 0.0)
+    push!(uppers, ∞)
+    push!(lowers, -∞)
+    global cb_calls = Cint[]  # just for debugging
+
+    global start_time = time()
+
     # Create results directory
     scenario_results_dir = "$results_dir/scenario_$scenario_id"
     isdir(scenario_results_dir) || mkpath(scenario_results_dir)
@@ -146,10 +157,6 @@ for scenario_dir in readdir(base_path)
         # Extract scenario ID
         scenario_id = parse(Int, split(scenario_dir, "_")[2])
 
-        if scenario_id > 6
-            continue
-        end
-        
         # Process each instance
         for instance_file in readdir(scenario_path)
             instance_path = joinpath(scenario_path, instance_file)
@@ -157,9 +164,6 @@ for scenario_dir in readdir(base_path)
             
             try
                 instance_id = parse(Int, match(r"instance_(\d+)\.json", instance_file)[1])
-                if instance_id > 1
-                    continue  # only look at the first instance
-                end
                 println("Processing scenario $scenario_id instance $instance_id")
                 
                 platform = load_instance(scenario_id, instance_id; base_path)

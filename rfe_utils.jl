@@ -1,16 +1,6 @@
 using Gurobi, JuMP, Printf, Oil
 
 
-times = Vector{Float64}()
-uppers = Vector{Float64}()
-lowers = Vector{Float64}()
-
-push!(times, 0.0)
-push!(uppers, ∞)
-push!(lowers, -∞)
-cb_calls = Cint[]  # just for debugging
-# Setup callback for storing the upper and lower bounds over time
-
 function store_upperbound(cb_data, cb_where::Cint)
     push!(cb_calls, cb_where)
     if cb_where == GRB_CB_MIP

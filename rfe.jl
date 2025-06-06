@@ -6,6 +6,19 @@ include("rfe_utils.jl")
 
 const GRB_ENV = Gurobi.Env()
 
+# (re)set global variables of the callbacks
+times = Vector{Float64}()
+uppers = Vector{Float64}()
+lowers = Vector{Float64}()
+
+push!(times, 0.0)
+push!(uppers, ∞)
+push!(lowers, -∞)
+cb_calls = Cint[]  # just for debugging
+
+start_time = time()
+
+
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
 time_budget = 60.0 * 15  # 15 minutes budget
 
