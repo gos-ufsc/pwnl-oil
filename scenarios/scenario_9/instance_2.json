@@ -1,8 +1,8 @@
 {
     "metadata": {
-        "scenario_id": 6,
+        "scenario_id": 9,
         "p_sep": 10.001,
-        "q_inj_max_plat": 1.2904368234144915e6,
+        "q_inj_max_plat": 1290436.8234144915,
         "instance_id": 2,
         "q_liq_max_plat": 8552.185543691454
     },

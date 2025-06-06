@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "scenario_id": 9,
+        "scenario_id": 3,
         "p_sep": 10.001,
         "q_inj_max_plat": 344239.28137693816,
         "instance_id": 7,
@@ -38,6 +38,5 @@
             "gor": 88.32735676921372
         }
     ],
-    "manifolds": [
-    ]
+    "manifolds": []
 }
