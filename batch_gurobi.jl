@@ -7,6 +7,44 @@ include("utils.jl")
 
 const GRB_ENV = Gurobi.Env()
 
+function solve_minlp_gurobi(model::Model; time_limit::Float64 = ∞)
+    # Setup Gurobi optimizer
+    optimizer = optimizer_with_attributes(Gurobi.Optimizer, "TimeLimit" => time_limit)
+    set_optimizer(model, optimizer)
+
+    # Set up callback
+    MOI.set(model, Gurobi.CallbackFunction(), store_both_bounds_gurobi)
+
+    # Solve the model
+    optimize!(model)
+
+    # Extract results
+    term_status = termination_status(model)
+    obj_value = if has_values(model) objective_value(model) else ∞ end
+
+    # Record final bounds if not already captured
+    best_bound = MOI.get(model, MOI.ObjectiveBound())
+    best_obj = obj_value
+    if isempty(uppers) || isempty(lowers) || isempty(times)
+        push!(times, time() - start_time)
+        push!(uppers, best_bound)
+        push!(lowers, best_solution)
+    end
+
+    gap = if best_bound != ∞ && obj_value != ∞
+            abs(obj_value - best_bound) / abs(obj_value)
+    else
+         ∞
+    end
+    # Print summary
+    @printf("Termination Status: %s\n", term_status)
+    @printf("Objective Value: %.4f\n", best_obj)
+    @printf("Best Bound: %.4f\n", best_bound)
+    @printf("Relative Gap: %.4f%%\n", gap * 100)
+
+    return best_obj, best_bound, gap, term_status, times, uppers, lowers
+end
+
 
 function solve_and_store(platform, scenario_id, instance_id; 
                          results_dir="results", time_budget=30.0, sos2_with_binaries=false)
