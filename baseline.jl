@@ -2,9 +2,11 @@ using Oil
 using JSON3
 
 include("models.jl")
+include("utils.jl")
 
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
 
+# SCENARIO 3
 platform = Platform(
     10.001 * kgf + g,
     # satellite_wells = Vector{Well}(),

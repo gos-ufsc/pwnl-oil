@@ -125,7 +125,7 @@ function generate_all_scenarios(;
         :q_inj_min_range => (20e3, 150e3),
         :q_inj_max_range => (150e3, 300e3),
     ),
-    base_path = "scenarios_smaller"
+    base_path = "scenarios"
 )
     Random.seed!(1234)  # For reproducibility
     
