@@ -9,6 +9,8 @@ include("rfe_utils.jl")
 const GRB_ENV = Gurobi.Env()
 
 function solve_minlp_gurobi(model::Model; time_limit::Float64 = ∞)
+    global times, uppers, lowers
+
     # Setup Gurobi optimizer
     optimizer = optimizer_with_attributes(Gurobi.Optimizer, "TimeLimit" => time_limit)
     set_optimizer(model, optimizer)
@@ -43,12 +45,13 @@ function solve_minlp_gurobi(model::Model; time_limit::Float64 = ∞)
     @printf("Best Bound: %.4f\n", best_bound)
     @printf("Relative Gap: %.4f%%\n", gap * 100)
 
-    return best_obj, best_bound, gap, term_status, times, uppers, lowers
+    return best_obj, best_bound, gap, term_status
 end
 
 
 function solve_and_store(platform, scenario_id, instance_id; 
                          results_dir="results", time_budget=30.0, sos2_with_binaries=false)
+    global uppers, lowers, times
     # Create results directory
     scenario_results_dir = "$results_dir/scenario_$scenario_id"
     isdir(scenario_results_dir) || mkpath(scenario_results_dir)
@@ -73,7 +76,7 @@ function solve_and_store(platform, scenario_id, instance_id;
         # Clean bounds
         clean_bounds!(uppers, lowers)
 
-        best_obj, best_bound, gap, term_status, times, uppers, lowers = solve_minlp_gurobi(model, time_limit = time_budget)
+        best_obj, best_bound, gap, term_status = solve_minlp_gurobi(model, time_limit = time_budget)
         solving_time = time() - start_time
 
         println("Before Cleaning:")
