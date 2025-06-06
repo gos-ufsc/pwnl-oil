@@ -4,6 +4,7 @@ using Oil
 using JuMP
 include("models.jl")
 include("utils.jl")
+include("rfe_utils.jl")
 
 const GRB_ENV = Gurobi.Env()
 

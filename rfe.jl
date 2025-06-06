@@ -9,16 +9,6 @@ const GRB_ENV = Gurobi.Env()
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
 time_budget = 60.0 * 15  # 15 minutes budget
 
-times = Vector{Float64}()
-uppers = Vector{Float64}()
-lowers = Vector{Float64}()
-
-push!(times, 0.0)
-push!(uppers, ∞)
-push!(lowers, -∞)
-cb_calls = Cint[]  # just for debugging
-# Setup callback for storing the upper and lower bounds over time
-
 
 function fix_model!(P::GenericModel, fixing_values::Dict{String, Int64})
     # unfix ξ variables
