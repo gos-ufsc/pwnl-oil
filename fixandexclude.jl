@@ -12,7 +12,7 @@ time_milp_solver = 0
 time_nlp_solver = 0
 time_model_manipulation = 0
 
-# SCENARIO 1
+# PROBLEM INSTANCE
 platform = Platform(
     10.001 * kgf + g,
     # satellite_wells = Vector{Well}(),
@@ -121,7 +121,7 @@ push!(times, final_time)
 push!(lowers, -C_minlp)
 push!(uppers, -C_relax)
 
-CSV.write("FnX_latest.csv", Dict(
+CSV.write("RFE_latest.csv", Dict(
     "times"=>times,
     "lowers"=>lowers,
     "uppers"=>uppers
