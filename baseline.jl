@@ -1,4 +1,5 @@
 using Oil
+using JSON3
 
 include("models.jl")
 
@@ -36,10 +37,4 @@ platform = Platform(
 
 
 model = get_minlp_problem(platform, sos2_with_binary = false)
-time_budget = 
 optimize!(model)
-
-
-# model = get_milp_relaxation(platform, sos2_with_binary = false)
-
-# optimize!(model)

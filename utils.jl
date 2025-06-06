@@ -11,31 +11,140 @@ push!(uppers, ∞)
 push!(lowers, -∞)
 cb_calls = Cint[]  # just for debugging
 # Setup callback for storing the upper and lower bounds over time
+
+function clean_bounds!(uppers::Vector{Float64}, lowers::Vector{Float64}; upper_placeholder=1e5, lower_placeholder=-1e5)
+    for i in eachindex(uppers)
+        # Cap and replace invalid values in upper bounds
+        if isnan(uppers[i]) || uppers[i] == Inf || uppers[i] > upper_placeholder
+            uppers[i] = upper_placeholder
+        elseif uppers[i] == -Inf || uppers[i] < lower_placeholder
+            uppers[i] = lower_placeholder
+        end
+        
+        # Cap and replace invalid values in lower bounds
+        if isnan(lowers[i]) || lowers[i] == -Inf || lowers[i] < lower_placeholder
+            lowers[i] = lower_placeholder
+        elseif lowers[i] == Inf || lowers[i] > upper_placeholder
+            lowers[i] = upper_placeholder
+        end
+    end
+end
+
+
+function sanitize_bound(value, placeholder)
+    if isnan(value) || isinf(value)
+        println("Sanitizing bound: Original = $value, Replaced with $placeholder")
+        return placeholder
+    end
+    return value
+end
+
+
 function store_upperbound(cb_data, cb_where::Cint)
-    # You can reference variables outside the function as normal
     push!(cb_calls, cb_where)
-    # You can select where the callback is run
     if cb_where == GRB_CB_MIP
         objbnd = Ref{Cdouble}()
         GRBcbget(cb_data, cb_where, GRB_CB_MIP_OBJBND, objbnd)
-        push!(times, time() - start_time)
-        push!(lowers, lowers[end])
-        push!(uppers, objbnd[])
+        
+        current_time = time() - start_time
+
+        # Replace Inf/NaN with placeholders for the upper bound
+        upper_bound = sanitize_bound(objbnd[], 1e5)
+
+        push!(times, current_time)
+        push!(lowers, lowers[end])  # Keep lower bound unchanged
+        push!(uppers, upper_bound)  # Update upper bound with cleaned value
+
+        # println("store_upperbound: Time = $current_time, Upper = $upper_bound, Lower = $(lowers[end])")
     end
-    return
 end
+
+
 function store_lowerbound(cb_data, cb_where::Cint)
-    # You can reference variables outside the function as normal
     push!(cb_calls, cb_where)
-    # You can select where the callback is run
     if cb_where == GRB_CB_MIP
         objbst = Ref{Cdouble}()
         GRBcbget(cb_data, cb_where, GRB_CB_MIP_OBJBST, objbst)
-        push!(times, time() - start_time)
-        push!(lowers, objbst[])
-        push!(uppers, uppers[end])
+
+        current_time = time() - start_time
+
+        # Replace -Inf/NaN with placeholders for the lower bound
+        lower_bound = sanitize_bound(objbst[], -1e5)
+
+        push!(times, current_time)
+        push!(lowers, lower_bound)  # Update lower bound with cleaned value
+        push!(uppers, uppers[end])  # Keep upper bound unchanged
+
+        # println("store_lowerbound: Time = $current_time, Upper = $(uppers[end]), Lower = $lower_bound")
     end
-    return
+end
+
+function store_both_bounds_gurobi(cb_data, cb_where::Cint; tol=1e-3)
+    if cb_where == GRB_CB_MIP
+        objbnd = Ref{Cdouble}()
+        objbst = Ref{Cdouble}()
+        GRBcbget(cb_data, cb_where, GRB_CB_MIP_OBJBND, objbnd)
+        GRBcbget(cb_data, cb_where, GRB_CB_MIP_OBJBST, objbst)
+
+        current_time = time() - start_time
+
+        # Replace Inf/-Inf with placeholders
+        upper_bound = sanitize_bound(objbnd[], 1e5)
+        lower_bound = sanitize_bound(objbst[], -1e5)
+
+        # Only store if bounds differ significantly from the last stored values
+        if isempty(times) || 
+           abs(upper_bound - uppers[end]) > tol || 
+           abs(lower_bound - lowers[end]) > tol
+
+            push!(times, current_time)
+            push!(uppers, upper_bound)
+            push!(lowers, lower_bound)
+
+            # Debug print (optional)
+            println("Time: $current_time, Upper: $upper_bound, Lower: $lower_bound")
+        end
+    end
+end
+
+
+
+function solve_minlp_gurobi(model::Model; time_limit::Float64 = ∞)
+    # Setup Gurobi optimizer
+    optimizer = optimizer_with_attributes(Gurobi.Optimizer, "TimeLimit" => time_limit)
+    set_optimizer(model, optimizer)
+
+    # Set up callback
+    MOI.set(model, Gurobi.CallbackFunction(), store_both_bounds_gurobi)
+
+    # Solve the model
+    optimize!(model)
+
+    # Extract results
+    term_status = termination_status(model)
+    obj_value = if has_values(model) objective_value(model) else ∞ end
+
+    # Record final bounds if not already captured
+    best_bound = MOI.get(model, MOI.ObjectiveBound())
+    best_obj = obj_value
+    if isempty(uppers) || isempty(lowers) || isempty(times)
+        push!(times, time() - start_time)
+        push!(uppers, best_bound)
+        push!(lowers, best_solution)
+    end
+
+    gap = if best_bound != ∞ && obj_value != ∞
+            abs(obj_value - best_bound) / abs(obj_value)
+    else
+         ∞
+    end
+    # Print summary
+    @printf("Termination Status: %s\n", term_status)
+    @printf("Objective Value: %.4f\n", best_obj)
+    @printf("Best Bound: %.4f\n", best_bound)
+    @printf("Relative Gap: %.4f%%\n", gap * 100)
+
+    return best_obj, best_bound, gap, term_status, times, uppers, lowers
 end
 
 function solve(P; time_limit = ∞, save_bounds=nothing)
@@ -49,6 +158,8 @@ function solve(P; time_limit = ∞, save_bounds=nothing)
 
     optimize!(P)
 
+    term_status = termination_status(P)
+
     if solution_summary(P).result_count > 0
         C = -objective_value(P)
     else
@@ -57,7 +168,7 @@ function solve(P; time_limit = ∞, save_bounds=nothing)
 
     vars = all_variables(P)
 
-    return C, vars
+    return C, vars, term_status
 end
 
 function milp_solver(P::GenericModel; time_limit = Inf, save_bounds = false)
@@ -127,9 +238,9 @@ function fix_model!(P::GenericModel, fixing_values::Dict{String, Int64})
             unfix(v)
 
             # TODO: this is not necessary anymore
-            if startswith(name(v), "ξ")
-                set_lower_bound(v, 0.0)
-            end
+            # if startswith(name(v), "ξ")
+            #     set_lower_bound(v, 0.0)
+            # end
         end
     end
 
@@ -142,18 +253,24 @@ end
 
 function exclude!(P::GenericModel, fixing_values::Dict{String, Int64}; int_tol=1e-6)
     constraint_lhs = 0
-
+    # println("Fixing_values; ", fixing_values)
     for (var_name, value) in fixing_values
         var = variable_by_name(P, var_name)
 
-        if startswith(var_name, "ξ")
-            constraint_lhs += var
-        else
+        if startswith(var_name, "y")
+            constraint_lhs += value * (1 - var) + (1 - value) * var
+        end
+
+        if startswith(var_name, "t_gl")
+            constraint_lhs += value * (1 - var) + (1 - value) * var
+        end
+
+        if startswith(var_name, "z")
             constraint_lhs += value * (1 - var) + (1 - value) * var
         end
     end
 
-    @constraint(P, constraint_lhs >= 1 - int_tol)
+    @constraint(P, constraint_lhs >= 1)
 end
 
 function check_points_is_feasible(P, vars)

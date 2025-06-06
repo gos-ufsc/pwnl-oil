@@ -38,9 +38,7 @@ function solve_and_store(platform, scenario_id, instance_id;
 
     try
         # Create and configure model
-        model = get_minlp_problem(platform, sos2_with_binary=true)
-        # set_optimizer(model, () -> Gurobi.Optimizer(GRB_ENV))
-        # set_time_limit_sec(model, time_budget)
+        model = get_minlp_problem(platform, sos2_with_binary=false)
 
         # Solve and collect metrics
         global times = Vector{Float64}()
@@ -55,10 +53,6 @@ function solve_and_store(platform, scenario_id, instance_id;
 
         best_obj, best_bound, gap, term_status, times, uppers, lowers = solve_minlp_gurobi(model, time_limit = time_budget)
         solving_time = time() - start_time
-
-        println("Before Cleaning:")
-        println("First 10 Uppers: ", first(uppers, 10))
-        println("First 10 Lowers: ", first(lowers, 10))
 
         # Clean bounds
         clean_bounds!(uppers, lowers)
@@ -88,7 +82,7 @@ function solve_and_store(platform, scenario_id, instance_id;
         @error "Error solving scenario $scenario_id instance $instance_id" exception=(e, catch_backtrace())
         results = merge(results, Dict(
             :status => "Error: $(sprint(showerror, e))",
-            # :solve_time => time() - start_time
+            :solve_time => time() - start_time
         ))
     end
 
@@ -108,6 +102,7 @@ function solve_and_store(platform, scenario_id, instance_id;
 end
 
 function process_all_scenarios(; base_path="scenarios", results_dir="results", time_budget=3600.0)
+    base_path = "scenarios_smaller"
     # Create results directory structure
     isdir(results_dir) || mkpath(results_dir)
 
@@ -164,7 +159,7 @@ function load_instance(scenario_id::Int, instance_id::Int; base_path="scenarios"
                 IPR(w["p_res"] * kgf + g, w["IP"] * (m3/d)/kgf)
             ) for w in data["satellite_wells"]]
         
-        println(satellite_wells[1].name)
+        # println(satellite_wells[1].name)
         
         # Rebuild manifolds
         manifolds = [

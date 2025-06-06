@@ -111,9 +111,9 @@ function add_nonlinear_well(model::GenericModel, well::Oil.AbstractWell; sos2_wi
         lower_bound=0.0,  # (62i)
         base_name="λ_vlp_$n"
     )
-    ξ_iglr_n = @variable(model, [well.IGLR], lower_bound=0.0, base_name="ξ_iglr_$n")
-    ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0, base_name="ξ_whp_$n")
-    ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0, base_name="ξ_qliq_vlp_$n")
+    ξ_iglr_n = @variable(model, [well.IGLR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_iglr_$n")
+    ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0,upper_bound=1.0, base_name="ξ_whp_$n")
+    ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0,upper_bound=1.0, base_name="ξ_qliq_vlp_$n")
 
     # Constraints
 
@@ -303,10 +303,10 @@ function add_nonlinear_manifold(model::GenericModel, manifold::Manifold, p_sep::
     ## VLP curve variables
     λ_riser_m = @variable(model, [manifold.Q_liq, manifold.GOR, manifold.WCT, manifold.IGLR],
                           lower_bound=0.0, base_name="λ_riser_$m")  # (65d)
-    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0, base_name="ξ_qliq_$m")
-    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0, base_name="ξ_gor_$m")
-    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
-    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
+    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0,upper_bound=1.0, base_name="ξ_qliq_$m")
+    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_gor_$m")
+    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0,upper_bound=1.0, base_name="ξ_wct_$m")
+    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_iglr_$m")
 
     # Constraints
 
@@ -549,6 +549,7 @@ end
 
 function get_minlp_problem(platform::Platform; sos2_with_binary = false)
     model = Model(() -> Gurobi.Optimizer(GRB_ENV))
+    # model = Model(() -> MOI.instantiate(BARON.Optimizer, with_bridge_type = MOI.Bridges.LazyBridgeOptimizer{Float64}))
 
     # Objective
     @variable(model, q_oil_total >= 0)
@@ -613,9 +614,9 @@ function add_linear_well(model::GenericModel, well::Oil.AbstractWell; sos2_with_
         lower_bound=0.0,  # (62i)
         base_name="λ_vlp_$n"
     )
-    ξ_iglr_n = @variable(model, [well.IGLR], lower_bound=0.0, base_name="ξ_iglr_$n")
-    ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0, base_name="ξ_whp_$n")
-    ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0, base_name="ξ_qliq_vlp_$n")
+    ξ_iglr_n = @variable(model, [well.IGLR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_iglr_$n")
+    ξ_whp_n = @variable(model, [well.WHP], lower_bound=0.0,upper_bound=1.0, base_name="ξ_whp_$n")
+    ξ_qliq_n = @variable(model, [well.Q_liq_vlp], lower_bound=0.0,upper_bound=1.0, base_name="ξ_qliq_vlp_$n")
 
     # Constraints
 
@@ -797,10 +798,10 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
     ## VLP curve variables
     λ_riser_m = @variable(model, [manifold.Q_liq, manifold.GOR, manifold.WCT, manifold.IGLR],
                           lower_bound=0.0, base_name="λ_riser_$m")  # (65d)
-    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0, base_name="ξ_qliq_$m")
-    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0, base_name="ξ_gor_$m")
-    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0, base_name="ξ_wct_$m")
-    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0, base_name="ξ_iglr_$m")
+    ξ_qliq_m = @variable(model, [manifold.Q_liq], lower_bound=0.0,upper_bound=1.0, base_name="ξ_qliq_$m")
+    ξ_gor_m = @variable(model, [manifold.GOR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_gor_$m")
+    ξ_wct_m = @variable(model, [manifold.WCT], lower_bound=0.0,upper_bound=1.0, base_name="ξ_wct_$m")
+    ξ_iglr_m = @variable(model, [manifold.IGLR], lower_bound=0.0,upper_bound=1.0, base_name="ξ_iglr_$m")
 
     # Constraints
 

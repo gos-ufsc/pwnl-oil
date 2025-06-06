@@ -6,8 +6,8 @@ include("utils.jl")
 
 # Function to solve the optimization problem with Gurobi
 function solve_gurobi(P; time_limit = ∞, save_bounds=nothing)
-    set_time_limit_sec(P, time_limit)
-    optimize!(P)
+    # set_time_limit_sec(P, time_limit)
+    C, var, status = solve(P, time_limit, save_bounds)
 
     if solution_summary(P).result_count > 0
         C = objective_value(P)
@@ -38,28 +38,57 @@ end
 
 # Function to solve and save results for a specific constraint scenario
 function solve_and_save_results(platform, constraint_name::String, constraint_value::Union{Nothing, Float64}, time_budget::Float64)
+    global times = Vector{Float64}()
+    global uppers = Vector{Float64}()
+    global lowers = Vector{Float64}()
+
+    push!(times, 0.0)
+    push!(uppers, ∞)
+    push!(lowers, -∞)
+    cb_calls = Cint[] 
+    global start_time = time()
+
     P_minlp = get_minlp_problem(platform,sos2_with_binary=false)
+    set_optimizer_attribute(P_minlp, "FeasibilityTol", 1e-9)
+    set_optimizer_attribute(P_minlp, "OptimalityTol", 1e-9)
+    set_optimizer_attribute(P_minlp, "IntFeasTol", 1e-8)
+   
+
 
     set_optimizer(P_minlp, () -> Gurobi.Optimizer(GRB_ENV))
-    C_minlp, vars, bound, gap, solving_time = solve_gurobi(P_minlp, time_limit = time_budget)
-    solution = Dict(name(v) => value(v) for v in vars)
+    best_obj, best_bound, gap, term_status, times, uppers, lowers = solve_minlp_gurobi(P_minlp, time_limit = time_budget)
+    solving_time = time() - start_time
 
     q_liq_value = value(variable_by_name(P_minlp, "q_liq_plat"))
     q_wat_value = value(variable_by_name(P_minlp, "q_wat_plat"))
     q_oil_value = value(variable_by_name(P_minlp, "q_oil_plat"))
     q_inj_value = value(variable_by_name(P_minlp, "q_inj_plat"))
 
+    println("Before Cleaning:")
+    println("First 10 Uppers: ", first(uppers, 10))
+    println("First 10 Lowers: ", first(lowers, 10))
+
+    # Clean bounds
+    clean_bounds!(uppers, lowers)
+
+    # Validate cleaning
+    println("After Cleaning:")
+    println("First 10 Uppers: ", first(uppers, 10))
+    println("First 10 Lowers: ", first(lowers, 10))
+
+    println("Lengths -> Times: $(length(times)), Uppers: $(length(uppers)), Lowers: $(length(lowers))")
+
     # Create file name
-    filename = "results_$(constraint_name)_$(constraint_value)_$(round(solving_time, digits=2)).csv"
+    filename = "results_gurobi_$(constraint_name)_$(constraint_value).csv"
 
     # Prepare results as a DataFrame
     results = DataFrame(
-        name = ["objective_value", "lower_bound", "gap", "runtime", "q_liq", "q_wat", "q_oil", "q_inj", "constraint_name", "constraint_value"],
-        value = [C_minlp, bound, gap, solving_time, q_liq_value, q_wat_value, q_oil_value, q_inj_value, constraint_name, constraint_value]
+        name = ["objective_value", "lower_bound", "gap", "runtime", "q_liq", "q_wat", "q_oil", "q_inj", "constraint_name", "constraint_value", "times", "lowers", "uppers"],
+        value = [best_obj, best_bound, gap, solving_time, q_liq_value, q_wat_value, q_oil_value, q_inj_value, constraint_name, constraint_value, times, lowers, uppers]
     )
 
     # Write results to a CSV file
-    CSV.write(filename, results)
+    CSV.write(filename, results, bufsize=500_000_000)
 
     println("Results saved to: $filename")
 end
@@ -128,8 +157,8 @@ const GRB_ENV = Gurobi.Env()
 const ∞  = Inf
 
 q_liq_max_values = nothing  # Example values for q_liq_max
-q_inj_max_values = [1400.0] * 1e3  # Example values for q_inj_max
-time_budget = 60.0 * 60.0  # 1 hour
+q_inj_max_values = [900.0] * 1e3  # Example values for q_inj_max
+time_budget = 60.0 * 60  # 1 hour
 
 # Run tests
 run_tests_with_constraints(platform, q_inj_max_values, q_liq_max_values, time_budget)

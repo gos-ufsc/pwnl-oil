@@ -1,9 +1,14 @@
-using CSV, DataFrames, SCIP
+using CSV, DataFrames
 using JSON3
 using Oil
-using JuMP
+using JuMP, AmplNLWriter
+using MathOptInterface.FileFormats
 include("models.jl")
 include("utils.jl")
+
+# ENV["BARON_EXEC"] = "/opt/ampl/baron"
+# ENV["BARON_LICENSE"] = "/opt/ampl/ampl.lic"
+
 
 function safe_variable_value(model, var_name)
     try
@@ -15,147 +20,119 @@ function safe_variable_value(model, var_name)
     end
 end
 
+function write_nl_file(platform; output_path="model.nl")
+    model = get_minlp_problem(platform, sos2_with_binary=true)
+    
+    # Create NL format container
+    nl_optimizer = MOI.FileFormats.Model(format=MOI.FileFormats.FORMAT_NL)
+    
+    # Copy model to NL container
+    MOI.copy_to(nl_optimizer, backend(model))
+    
+    # Add metadata
+    MOI.set(nl_optimizer, MOI.Name(), "oil_optimization_model")
+    
+    # Write file
+    try
+        MOI.write_to_file(nl_optimizer, output_path)
+        @info "Successfully wrote NL file: $output_path"
+        return output_path
+    catch e
+        @error "Failed to write NL file" exception=(e, catch_backtrace())
+        rethrow(e)
+    end
+end
 
-function solve_and_store(platform, scenario_id, instance_id; 
-    results_dir="results", time_budget=3600.0)
 
-    # Create results directory path
+function solve_and_store(platform, scenario_id, instance_id;
+    results_dir="results", time_budget=3600.0,
+    generate_nl_only=false)
+
     scenario_results_dir = joinpath(results_dir, "scenario_$scenario_id")
     output_path = joinpath(scenario_results_dir, "instance_$instance_id.json")
-    log_path = joinpath(scenario_results_dir, "instance_$instance_id.log")  # New log file path
+    nl_path = joinpath(scenario_results_dir, "instance_$instance_id.nl")
 
-    # Skip if file exists (regardless of content)
-    if isfile(output_path) && isfile(log_path)
-        println("Skipping scenario $scenario_id instance $instance_id (solution exists)")
+    # Generate NL file only
+    if generate_nl_only
+        if isfile(nl_path)
+            println("Skipping NL generation: $nl_path exists")
+            return nothing
+        end
+        mkpath(scenario_results_dir)
+        write_nl_file(platform; output_path=nl_path)
+        println("Generated NL file: $nl_path")
         return nothing
     end
 
-    # Initialize results structure
+    isdir(scenario_results_dir) || mkpath(scenario_results_dir)
+
     results = Dict(
         :scenario_id => scenario_id,
         :instance_id => instance_id,
         :status => "Error",
         :objective_value => NaN,
-        :solve_time => 0.0,
-        :relative_gap => NaN,
-        :production => Dict(
-            :q_liq => NaN,
-            :q_wat => NaN,
-            :q_oil => NaN,
-            :q_inj => NaN
-        )
+        :solve_time => 0.0
     )
 
-    # Create results directory if needed
-    isdir(scenario_results_dir) || mkpath(scenario_results_dir)
-    
-    # Open log file for writing
-    log_file = open(log_path, "w")
-    
     try
-
-        # Redirect stdout and stderr to log file
-        original_stdout = stdout
-        original_stderr = stderr
-        redirect_stdout(log_file)
-        redirect_stderr(log_file)
-
-        flush(log_file)
-
-        # Create and configure model
+        # Cria o modelo com BARON via AMPL
         model = get_minlp_problem(platform, sos2_with_binary=true)
-        set_optimizer(model, SCIP.Optimizer)
-        set_optimizer_attribute(model, "limits/time", time_budget)
-        version_info = MOI.get(model, MOI.SolverVersion())
-        println("SCIP version: ", version_info)
-        
-        # Solve the model
+        println("MODEL CREATED")
+        set_optimizer(model, () -> AmplNLWriter.Optimizer("/opt/ampl/baron"))
+        set_optimizer_attribute(model, "maxtime", time_budget)
+
         start_time = time()
         optimize!(model)
         solving_time = time() - start_time
+
         term_status = termination_status(model)
+        is_solved = term_status in [MOI.OPTIMAL, MOI.LOCALLY_SOLVED, MOI.TIME_LIMIT, MOI.SOLUTION_LIMIT] &&
+                    primal_status(model) == MOI.FEASIBLE_POINT
 
-        # Determine if solved and calculate gap
-        solved_statuses = [MOI.OPTIMAL, MOI.LOCALLY_SOLVED, MOI.TIME_LIMIT, MOI.SOLUTION_LIMIT]
-        is_solved = term_status in solved_statuses && primal_status(model) == MOI.FEASIBLE_POINT
-        dual_bound = objective_bound(model)
-        obj_value = is_solved ? objective_value(model) : NaN
-        relative_gap = NaN
-
-        if is_solved
-            sense = objective_sense(model)
-            abs_gap = sense == MOI.MIN_SENSE ? max(0.0, obj_value - dual_bound) :
-                      sense == MOI.MAX_SENSE ? max(0.0, dual_bound - obj_value) : 0.0
-            denominator = max(abs(obj_value), 1e-6)
-            relative_gap = abs_gap / denominator
-        end
-
-        # Collect production data
-        production_data = Dict(
-            :q_liq => safe_variable_value(model, "q_liq_plat"),
-            :q_wat => safe_variable_value(model, "q_wat_plat"),
-            :q_oil => safe_variable_value(model, "q_oil_plat"),
-            :q_inj => safe_variable_value(model, "q_inj_plat")
-        )
-
-        # Update results
-        results = merge(results, Dict(
-            :status => "$term_status",
-            :objective_value => obj_value,
-            :solve_time => solving_time,
-            :relative_gap => relative_gap,
-            :production => production_data
-        ))
+        results[:status] = string(term_status)
+        results[:solve_time] = solving_time
+        results[:objective_value] = is_solved ? objective_value(model) : NaN
 
     catch e
         @error "Error solving scenario $scenario_id instance $instance_id" exception=(e, catch_backtrace())
-        results = merge(results, Dict(
-            :status => "Error: $(sprint(showerror, e))",
-            :solve_time => time() - start_time
-        ))
+        results[:status] = "Error: $(sprint(showerror, e))"
+        results[:solve_time] = time() - start_time
     end
 
     replace_nan!(results)
 
-    # Save to JSON
     try
         open(output_path, "w") do f
             JSON3.pretty(f, results)
         end
-        # redirect_stdout(original_stdout)
-        # redirect_stderr(original_stderr)
-        
-        println("\n" * "="^80)
-        println("FINISHED SCENARIO $scenario_id INSTANCE $instance_id")
-        close(log_file)
-
-
     catch e
         @error "Failed to save results" exception=(e, catch_backtrace())
-        println(log_file, "ERROR: ", sprint(showerror, e))
-        println(log_file, "Stacktrace:")
-        println(log_file, stacktrace(catch_backtrace()))
     end
-    
+
     return results
 end
 
 # ... process_all_scenarios remains unchanged ...
 
-function process_all_scenarios(; base_path="scenarios", results_dir="results", time_budget=3600.0)
-    base_path = "scenarios_backup"
-    # skip_scenarios = Set([1,2,3,4,5,6])
-    skip_insntaces = Set([1,2])
+function process_all_scenarios(; 
+    base_path="scenarios", 
+    results_dir="results", 
+    time_budget=3600.0,
+    generate_nl_only=false  # Add this flag
+)
+
+    base_path="scenarios_smaller"
+    results_dir="nl_baron_smaller"
     # Create results directory structure
     isdir(results_dir) || mkpath(results_dir)
     # Process each scenario
     for scenario_dir in readdir(base_path)
         scenario_path = joinpath(base_path, scenario_dir)
         isdir(scenario_path) || continue
+        
         try
             # Extract scenario ID
             scenario_id = parse(Int, split(scenario_dir, "_")[2])
-            # scenario_id in skip_scenarios && continue
             
             # Process each instance
             for instance_file in readdir(scenario_path)
@@ -165,10 +142,9 @@ function process_all_scenarios(; base_path="scenarios", results_dir="results", t
                 try
                     instance_id = parse(Int, match(r"instance_(\d+)\.json", instance_file)[1])
                     println("Processing scenario $scenario_id instance $instance_id")
-                    instance_id in skip_insntaces && continue
                     
                     platform = load_instance(scenario_id, instance_id; base_path)
-                    solve_and_store(platform, scenario_id, instance_id; results_dir, time_budget)
+                    solve_and_store(platform, scenario_id, instance_id; results_dir, time_budget, generate_nl_only)
                     println("Solved scenario $scenario_id instance $instance_id")
                 
                 catch e
@@ -267,4 +243,4 @@ function replace_nan!(data)
 end
 
 # Run processing
-process_all_scenarios()
+process_all_scenarios(generate_nl_only=true)

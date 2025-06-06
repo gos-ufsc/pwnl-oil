@@ -112,6 +112,9 @@ function generate_all_scenarios(;
         (id=4, n_sat=3, n_man=2, wells_per_man=2),
         (id=5, n_sat=2, n_man=2, wells_per_man=3),
         (id=6, n_sat=3, n_man=2, wells_per_man=3),
+        (id=7, n_sat=1, n_man=0, wells_per_man=0),
+        (id=8, n_sat=2, n_man=0, wells_per_man=0),
+        (id=9, n_sat=3, n_man=0, wells_per_man=0),
     ],
     instances_per_scenario=8,
     param_ranges=Dict(
@@ -122,7 +125,7 @@ function generate_all_scenarios(;
         :q_inj_min_range => (20e3, 150e3),
         :q_inj_max_range => (150e3, 300e3),
     ),
-    base_path = "scenarios_teste"
+    base_path = "scenarios_smaller"
 )
     Random.seed!(1234)  # For reproducibility
     
