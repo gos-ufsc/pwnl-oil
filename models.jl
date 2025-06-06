@@ -1,7 +1,5 @@
 using Oil
-using JuMP, Gurobi
-
-const GRB_ENV = Gurobi.Env()
+using JuMP
 
 M_Pressure = 1000.0  # Big-M
 
@@ -548,8 +546,7 @@ function add_platform(model::GenericModel, platform::Platform)
 end
 
 function get_minlp_problem(platform::Platform; sos2_with_binary = false)
-    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
-    # model = Model(() -> MOI.instantiate(BARON.Optimizer, with_bridge_type = MOI.Bridges.LazyBridgeOptimizer{Float64}))
+    model = Model()
 
     # Objective
     @variable(model, q_oil_total >= 0)
@@ -961,7 +958,7 @@ function add_linear_manifold(model::GenericModel, manifold::Manifold, p_sep::Flo
 end
 
 function get_milp_relaxation(platform::Platform; sos2_with_binary = false)
-    model = Model(() -> Gurobi.Optimizer(GRB_ENV))
+    model = Model()
 
     # Objective
     @variable(model, q_oil_total >= 0)

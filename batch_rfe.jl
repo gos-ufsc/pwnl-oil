@@ -5,6 +5,8 @@ using JuMP
 include("models.jl")
 include("utils.jl")
 
+const GRB_ENV = Gurobi.Env()
+
 function sanitize_data!(data)
     if data isa AbstractDict
         for (k, v) in data
@@ -90,6 +92,8 @@ function solve_and_store(platform, scenario_id, instance_id;
         println("- Creating models...")
         P_minlp = get_minlp_problem(platform, sos2_with_binary=true)
         P_relax = get_milp_relaxation(platform, sos2_with_binary=true)
+        set_optimizer(P_minlp, () -> Gurobi.Optimizer(GRB_ENV))
+        set_optimizer(P_relax, () -> Gurobi.Optimizer(GRB_ENV))
 
         # Solve initial relaxation
         println("- Solving initial MILP relaxation...")

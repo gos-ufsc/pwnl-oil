@@ -3,6 +3,8 @@ using Oil, CSV
 include("models.jl")
 include("utils.jl")
 
+const GRB_ENV = Gurobi.Env()
+
 kgf, g, m3, d, kPa = latin_si(:kgf), latin_si(:gauge), latin_si(:m3), latin_si(:day), latin_si(:kPa)
 time_budget = 60.0 * 15  # 15 minutes budget
 
@@ -36,6 +38,7 @@ platform = Platform(
 
 ## 1. Build MINLP problem P
 P_minlp = get_minlp_problem(platform, sos2_with_binary = true)
+set_optimizer(P_minlp, () -> Gurobi.Optimizer(GRB_ENV))
 C_minlp = ∞  # following the minimization standard
 
 ### Start counting time after original problem is built
@@ -43,6 +46,7 @@ start_time = time()
 
 ## 2. Build the MILP relaxation \tilde{P}
 P_relax = get_milp_relaxation(platform, sos2_with_binary = true)
+set_optimizer(P_relax, () -> Gurobi.Optimizer(GRB_ENV))
 C_relax = ∞
 
 ## 3. Solve the MILP relaxation \tilde{P}, get solution and cost

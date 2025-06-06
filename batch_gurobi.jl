@@ -5,6 +5,8 @@ using JuMP
 include("models.jl")
 include("utils.jl")
 
+const GRB_ENV = Gurobi.Env()
+
 
 function solve_and_store(platform, scenario_id, instance_id; 
                          results_dir="results", time_budget=30.0, sos2_with_binaries=false)
@@ -27,6 +29,7 @@ function solve_and_store(platform, scenario_id, instance_id;
     try
         # Create and configure model
         model = get_minlp_problem(platform, sos2_with_binary=sos2_with_binaries)
+        set_optimizer(model, () -> Gurobi.Optimizer(GRB_ENV))
 
         # Clean bounds
         clean_bounds!(uppers, lowers)
