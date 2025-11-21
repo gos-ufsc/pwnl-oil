@@ -15,8 +15,8 @@ The construction of the MINLP problem and the MILP relaxation is implemented in 
 
 ## Data
 
-Our instances rely on a VLP curve... **TODO**
-
+The repository includes the VLP curves used to build our instances in the data/ directory.
+These curves are real production VLP curves provided by Petrobras S.A. for research and benchmarking purposes.
 ## Experiments
 
 The instances used in our paper are available under `scenarios/`. A direct reproduction of our experiments can be achieved by running the `batch_*.jl` files. To run your own experiments with RFE, refer to `rfe.jl`, in which we have a detailed implementation of the algorithm for a sample problem.
