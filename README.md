@@ -15,7 +15,9 @@ The construction of the MINLP problem and the MILP relaxation is implemented in 
 
 ## Data
 
-Our instances rely on a VLP curve... **TODO**
+Our instances use VLP curves as described in Section 4.2 of the accompanying paper.
+We provide the data we used in our experiments in .Ecl format (Eclipse software), which we read using our Oil.jl package.
+To use custom data, one must implement an interface to the VLP structures in Oil.jl.
 
 ## Experiments
 

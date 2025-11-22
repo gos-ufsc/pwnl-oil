@@ -44,6 +44,5 @@ Manifest.toml
 
 # End of https://www.toptal.com/developers/gitignore/api/julia,git
 
-data/*
 
 *.log
